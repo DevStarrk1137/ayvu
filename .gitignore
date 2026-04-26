@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local runtime data
+.cache/
+*.sqlite
+*.sqlite3
+
+# User-provided or generated books
+*.epub
+*.pdf
+*-extraido/
+livro-extraido/
+
+# Local configuration and private glossary
+.codex
+glossary.json

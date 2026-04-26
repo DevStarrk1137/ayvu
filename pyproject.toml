@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ayvu"
+version = "0.1.0"
+description = "CLI para traduzir EPUBs com tradutor local HTTP, preservando a estrutura do livro."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "ayvu contributors" }
+]
+license = { text = "MIT" }
+dependencies = [
+  "ebooklib>=0.18",
+  "beautifulsoup4>=4.12",
+  "lxml>=4.9",
+  "requests>=2.31",
+  "typer>=0.9",
+  "rich>=13.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4"
+]
+
+[project.scripts]
+ayvu = "epub_local_translator.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
