@@ -1,6 +1,6 @@
 import pytest
 
-from epub_local_translator.glossary import GlossaryError, apply_glossary, load_glossary
+from ayvu.glossary import GlossaryError, apply_glossary, load_glossary
 
 
 def test_apply_glossary_replaces_terms():

@@ -1,6 +1,6 @@
-from epub_local_translator.cache import TranslationCache
-from epub_local_translator.html_translate import translate_html
-from epub_local_translator.translator import Translator
+from ayvu.cache import TranslationCache
+from ayvu.html_translate import translate_html
+from ayvu.translator import Translator
 
 
 class FakeTranslator(Translator):

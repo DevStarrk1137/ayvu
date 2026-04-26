@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ayvu"
-version = "0.1.0"
+version = "0.0.1"
 description = "CLI para traduzir EPUBs com tradutor local HTTP, preservando a estrutura do livro."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,7 +27,7 @@ dev = [
 ]
 
 [project.scripts]
-ayvu = "epub_local_translator.cli:app"
+ayvu = "ayvu.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]

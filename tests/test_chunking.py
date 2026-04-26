@@ -1,4 +1,4 @@
-from epub_local_translator.chunking import split_text
+from ayvu.chunking import split_text
 
 
 def test_split_text_keeps_short_text_unchanged():

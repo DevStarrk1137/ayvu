@@ -169,7 +169,7 @@ uv run pytest
 ayvu/
 ├── docs/
 ├── src/
-│   └── epub_local_translator/
+│   └── ayvu/
 ├── tests/
 ├── glossary.example.json
 ├── pyproject.toml

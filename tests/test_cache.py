@@ -1,4 +1,4 @@
-from epub_local_translator.cache import TranslationCache
+from ayvu.cache import TranslationCache
 
 
 def test_cache_round_trip(tmp_path):

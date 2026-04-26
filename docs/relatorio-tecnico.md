@@ -31,7 +31,7 @@ ayvu/
 ├── docs/
 │   └── relatorio-tecnico.md
 ├── src/
-│   └── epub_local_translator/
+│   └── ayvu/
 │       ├── __init__.py
 │       ├── cache.py
 │       ├── chunking.py
@@ -449,49 +449,49 @@ ayvu translate game.epub \
 CLI:
 
 ```text
-src/epub_local_translator/cli.py
+src/ayvu/cli.py
 ```
 
 Leitura, inspeção, extração e empacotamento EPUB:
 
 ```text
-src/epub_local_translator/epub_io.py
+src/ayvu/epub_io.py
 ```
 
 Tradução de HTML:
 
 ```text
-src/epub_local_translator/html_translate.py
+src/ayvu/html_translate.py
 ```
 
 Tradutor HTTP:
 
 ```text
-src/epub_local_translator/translator.py
+src/ayvu/translator.py
 ```
 
 Cache SQLite:
 
 ```text
-src/epub_local_translator/cache.py
+src/ayvu/cache.py
 ```
 
 Glossário:
 
 ```text
-src/epub_local_translator/glossary.py
+src/ayvu/glossary.py
 ```
 
 Chunking:
 
 ```text
-src/epub_local_translator/chunking.py
+src/ayvu/chunking.py
 ```
 
 Validação:
 
 ```text
-src/epub_local_translator/validation.py
+src/ayvu/validation.py
 ```
 
 ## 16. Testes atuais
