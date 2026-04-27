@@ -56,7 +56,12 @@ def test_translator(
 @app.command()
 def translate(
     epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
-    output: Path = typer.Option(..., "--output", "-o", help="Output EPUB path."),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output EPUB path. Defaults to <input-stem>-<target>.epub.",
+    ),
     source: str = typer.Option("en", "--source", help="Source language."),
     target: str = typer.Option("pt", "--target", help="Target language."),
     translator_name: str = typer.Option("libretranslate", "--translator", help="Translator backend."),
@@ -71,8 +76,10 @@ def translate(
     chunk_limit: int = typer.Option(3000, "--chunk-limit", help="Maximum characters sent per request."),
 ) -> None:
     """Translate EPUB visible text while preserving EPUB structure."""
-    if output.exists() and not overwrite and not dry_run:
-        console.print(f"[red]Output already exists:[/red] {output}")
+    output_path = _resolve_output_path(epub_path, output, target)
+
+    if output_path.exists() and not overwrite and not dry_run:
+        console.print(f"[red]Output already exists:[/red] {output_path}")
         console.print("Use --overwrite to replace it.")
         raise typer.Exit(code=1)
 
@@ -126,7 +133,7 @@ def translate(
         with TranslationCache(cache_path) as cache:
             report = translate_epub(
                 epub_path,
-                output,
+                output_path,
                 translator=translator,
                 cache=cache,
                 source=source,
@@ -140,10 +147,17 @@ def translate(
                 on_text_processed=on_text_processed,
             )
 
-    _print_report(report.chapters_processed, report.texts_translated, report.texts_from_cache, report.errors, output, dry_run)
+    _print_report(
+        report.chapters_processed,
+        report.texts_translated,
+        report.texts_from_cache,
+        report.errors,
+        output_path,
+        dry_run,
+    )
 
     if not dry_run:
-        validation = validate_output_epub(output)
+        validation = validate_output_epub(output_path)
         if validation.ok:
             console.print(f"[green]Validation OK:[/green] {validation.document_count} XHTML/HTML documents found.")
         else:
@@ -193,6 +207,14 @@ def _shorten(text: str, max_length: int = 50) -> str:
     if len(text) <= max_length:
         return text
     return text[: max_length - 3] + "..."
+
+
+def _resolve_output_path(epub_path: Path, output: Optional[Path], target: str) -> Path:
+    if output is not None:
+        return output
+
+    target_label = target.strip() or "translated"
+    return epub_path.with_name(f"{epub_path.stem}-{target_label}.epub")
 
 
 if __name__ == "__main__":

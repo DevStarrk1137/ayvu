@@ -10,6 +10,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Preservação de tags, CSS, imagens, links, sumário e nomes de arquivos internos.
 - Cache SQLite para retomar traduções interrompidas e evitar chamadas repetidas.
 - Glossário JSON opcional para padronizar termos técnicos.
+- Nome de saída automático baseado no idioma de destino.
 - Modo `dry-run` para simular o processamento sem gerar arquivo.
 - Extração de texto visível para Markdown.
 - Validação básica do EPUB gerado.
@@ -88,12 +89,24 @@ Traduzir um EPUB:
 
 ```bash
 uv run ayvu translate livro.epub \
-  --output livro-ptbr.epub \
   --source en \
   --target pt \
   --translator libretranslate \
   --url http://localhost:5000 \
   --cache .cache/traducoes.sqlite
+```
+
+Sem `--output`, a saída é criada ao lado do arquivo original usando o idioma de destino:
+
+```text
+livro-pt.epub
+```
+
+Para escolher manualmente o caminho da saída:
+
+```bash
+uv run ayvu translate livro.epub \
+  --output livro-ptbr.epub
 ```
 
 Usar glossário:
