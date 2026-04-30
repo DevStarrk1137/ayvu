@@ -39,6 +39,12 @@ class TextParts:
         return self.leading + core + self.trailing
 
 
+@dataclass(frozen=True)
+class TextTranslationResult:
+    text: str
+    from_cache: bool = False
+
+
 def extract_visible_text(html: str | bytes) -> list[str]:
     soup = BeautifulSoup(html, "lxml-xml")
     return [str(text_node) for text_node in _visible_text_nodes(soup) if str(text_node).strip()]
@@ -68,7 +74,7 @@ def translate_html(
         original = str(text_node)
 
         try:
-            translated_text, used_cache = translate_text(
+            result = translate_text(
                 original,
                 translator=translator,
                 cache=cache,
@@ -79,8 +85,8 @@ def translate_html(
                 chunk_limit=chunk_limit,
             )
             if not dry_run:
-                text_node.replace_with(NavigableString(translated_text))
-            _record_success(stats, used_cache, dry_run, on_text_processed)
+                text_node.replace_with(NavigableString(result.text))
+            _record_success(stats, result.from_cache, dry_run, on_text_processed)
         except Exception as exc:
             stats.errors.append(str(exc))
             _notify_text_processed(on_text_processed, "error")
@@ -101,17 +107,17 @@ def translate_text(
     glossary: Glossary | None = None,
     dry_run: bool = False,
     chunk_limit: int = 3000,
-) -> tuple[str, bool]:
+) -> TextTranslationResult:
     parts = TextParts.from_text(text)
     if not parts.core:
-        return text, False
+        return TextTranslationResult(text=text)
 
     cached = cache.get(parts.core, source, target)
     if cached is not None:
-        return parts.restore(apply_glossary(cached, glossary)), True
+        return TextTranslationResult(text=parts.restore(apply_glossary(cached, glossary)), from_cache=True)
 
     if dry_run:
-        return text, False
+        return TextTranslationResult(text=text)
 
     translated_chunks = [
         translator.translate(chunk, source, target)
@@ -120,7 +126,7 @@ def translate_text(
     translated = "".join(translated_chunks)
     cache.set(parts.core, translated, source, target)
     translated = apply_glossary(translated, glossary)
-    return parts.restore(translated), False
+    return TextTranslationResult(text=parts.restore(translated))
 
 
 def _visible_text_nodes(soup: BeautifulSoup) -> list[NavigableString]:

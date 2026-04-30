@@ -21,8 +21,8 @@ def split_text(text: str, limit: int = DEFAULT_CHUNK_LIMIT) -> list[str]:
         for sentence in _split_sentences(paragraph):
             if len(sentence) <= limit:
                 _append_chunk(chunks, sentence, limit)
-            else:
-                chunks.extend(_split_words(sentence, limit))
+                continue
+            chunks.extend(_split_words(sentence, limit))
     return [chunk for chunk in chunks if chunk]
 
 
@@ -72,8 +72,8 @@ def _split_words(text: str, limit: int) -> list[str]:
         if current and len(current) + len(token) > limit:
             chunks.append(current.rstrip())
             current = token
-        else:
-            current += token
+            continue
+        current += token
     if current:
         chunks.append(current.rstrip())
     return chunks
@@ -84,6 +84,5 @@ def _append_chunk(chunks: list[str], text: str, limit: int) -> None:
         return
     if chunks and len(chunks[-1]) + len(text) <= limit:
         chunks[-1] += text
-    else:
-        chunks.append(text)
-
+        return
+    chunks.append(text)
