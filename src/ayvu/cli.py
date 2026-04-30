@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -9,6 +10,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 from rich.table import Table
 
 from .cache import TranslationCache
+from .domain import LanguagePair, OutputPlan, TranslationOptions
 from .epub_io import extract_markdown, inspect_epub, translate_epub
 from .glossary import GlossaryError, load_glossary
 from .translator import LibreTranslateTranslator, TranslatorError, create_translator
@@ -17,6 +19,74 @@ from .validation import validate_output_epub
 
 app = typer.Typer(help="Translate local EPUB files with a local HTTP translator.")
 console = Console()
+
+
+@dataclass
+class TextProgressCounters:
+    translated: int = 0
+    cache: int = 0
+    dry_run: int = 0
+    error: int = 0
+
+    def record(self, status: str) -> None:
+        if status == "translated":
+            self.translated += 1
+            return
+        if status == "cache":
+            self.cache += 1
+            return
+        if status == "dry_run":
+            self.dry_run += 1
+            return
+        if status == "error":
+            self.error += 1
+            return
+        raise ValueError(f"Unknown text progress status: {status}")
+
+    @property
+    def processed(self) -> int:
+        return self.translated + self.cache + self.dry_run + self.error
+
+    def new_count(self, dry_run: bool) -> int:
+        if dry_run:
+            return self.dry_run
+        return self.translated
+
+
+class TranslationProgress:
+    def __init__(self, progress: Progress, dry_run: bool) -> None:
+        self._progress = progress
+        self._dry_run = dry_run
+        self._counters = TextProgressCounters()
+        self._chapter_task = progress.add_task("Chapters", total=None)
+        self._text_task = progress.add_task("Texts", total=None)
+
+    def chapter_started(self, index: int, total: int, name: str) -> None:
+        self._progress.update(
+            self._chapter_task,
+            total=total,
+            description=self._chapter_description(index, total, name),
+        )
+
+    def chapter_done(self, index: int, total: int, name: str, _stats: object) -> None:
+        self._progress.advance(self._chapter_task)
+        self._progress.update(self._chapter_task, description=self._chapter_description(index, total, name))
+
+    def text_processed(self, status: str) -> None:
+        self._counters.record(status)
+        self._progress.advance(self._text_task)
+        self._progress.update(self._text_task, description=self._text_description())
+
+    def _chapter_description(self, index: int, total: int, name: str) -> str:
+        return f"Chapters {index}/{total}: {_shorten(name)}"
+
+    def _text_description(self) -> str:
+        new_label = "would translate" if self._dry_run else "new"
+        new_count = self._counters.new_count(self._dry_run)
+        return (
+            f"Texts {self._counters.processed} | {new_label} {new_count} | "
+            f"cache {self._counters.cache} | errors {self._counters.error}"
+        )
 
 
 @app.command()
@@ -76,9 +146,17 @@ def translate(
     chunk_limit: int = typer.Option(3000, "--chunk-limit", help="Maximum characters sent per request."),
 ) -> None:
     """Translate EPUB visible text while preserving EPUB structure."""
-    output_path = _resolve_output_path(epub_path, output, target)
+    language_pair = LanguagePair(source=source, target=target)
+    translation_options = TranslationOptions(
+        language_pair=language_pair,
+        dry_run=dry_run,
+        fail_fast=fail_fast,
+        chunk_limit=chunk_limit,
+    )
+    output_plan = OutputPlan.for_translation(epub_path, output, language_pair, dry_run=dry_run)
+    output_path = output_plan.path
 
-    if output_path.exists() and not overwrite and not dry_run:
+    if output_plan.blocks_existing_file(overwrite):
         console.print(f"[red]Output already exists:[/red] {output_path}")
         console.print("Use --overwrite to replace it.")
         raise typer.Exit(code=1)
@@ -90,9 +168,12 @@ def translate(
         console.print("Create the file, pass the correct path, or remove --glossary to run without one.")
         raise typer.Exit(code=1) from exc
 
-    translator = create_translator(translator_name, url=url, timeout=timeout, retries=retries)
-
-    counters = {"translated": 0, "cache": 0, "dry_run": 0, "error": 0}
+    try:
+        translator = create_translator(translator_name, url=url, timeout=timeout, retries=retries)
+    except TranslatorError as exc:
+        console.print(f"[red]Translator error:[/red] {exc}")
+        console.print("Use --translator libretranslate.")
+        raise typer.Exit(code=1) from exc
 
     with Progress(
         SpinnerColumn(),
@@ -102,33 +183,7 @@ def translate(
         TimeElapsedColumn(),
         console=console,
     ) as progress:
-        chapter_task = progress.add_task("Chapters", total=None)
-        text_task = progress.add_task("Texts", total=None)
-
-        def on_chapter_start(index: int, total: int, name: str) -> None:
-            progress.update(
-                chapter_task,
-                total=total,
-                description=f"Chapters {index}/{total}: {_shorten(name)}",
-            )
-
-        def on_chapter_done(index: int, total: int, name: str, _stats: object) -> None:
-            progress.advance(chapter_task)
-            progress.update(chapter_task, description=f"Chapters {index}/{total}: {_shorten(name)}")
-
-        def on_text_processed(status: str) -> None:
-            counters[status] = counters.get(status, 0) + 1
-            processed = sum(counters.values())
-            new_label = "would translate" if dry_run else "new"
-            new_count = counters["dry_run"] if dry_run else counters["translated"]
-            progress.advance(text_task)
-            progress.update(
-                text_task,
-                description=(
-                    f"Texts {processed} | {new_label} {new_count} | "
-                    f"cache {counters['cache']} | errors {counters['error']}"
-                ),
-            )
+        progress_view = TranslationProgress(progress, dry_run=dry_run)
 
         with TranslationCache(cache_path) as cache:
             report = translate_epub(
@@ -136,15 +191,11 @@ def translate(
                 output_path,
                 translator=translator,
                 cache=cache,
-                source=source,
-                target=target,
+                options=translation_options,
                 glossary=glossary,
-                dry_run=dry_run,
-                fail_fast=fail_fast,
-                chunk_limit=chunk_limit,
-                on_chapter_start=on_chapter_start,
-                on_chapter_done=on_chapter_done,
-                on_text_processed=on_text_processed,
+                on_chapter_start=progress_view.chapter_started,
+                on_chapter_done=progress_view.chapter_done,
+                on_text_processed=progress_view.text_processed,
             )
 
     _print_report(
@@ -207,14 +258,6 @@ def _shorten(text: str, max_length: int = 50) -> str:
     if len(text) <= max_length:
         return text
     return text[: max_length - 3] + "..."
-
-
-def _resolve_output_path(epub_path: Path, output: Optional[Path], target: str) -> Path:
-    if output is not None:
-        return output
-
-    target_label = target.strip() or "translated"
-    return epub_path.with_name(f"{epub_path.stem}-{target_label}.epub")
 
 
 if __name__ == "__main__":

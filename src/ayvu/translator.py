@@ -7,7 +7,14 @@ from dataclasses import dataclass
 import requests
 
 
+SUPPORTED_TRANSLATORS = ("libretranslate",)
+
+
 class TranslatorError(RuntimeError):
+    pass
+
+
+class UnsupportedTranslatorError(TranslatorError):
     pass
 
 
@@ -90,6 +97,6 @@ class LibreTranslateTranslator(Translator):
 
 def create_translator(name: str, url: str, timeout: float = 30.0, retries: int = 2) -> Translator:
     if name != "libretranslate":
-        raise ValueError(f"Unsupported translator: {name}")
+        supported = ", ".join(SUPPORTED_TRANSLATORS)
+        raise UnsupportedTranslatorError(f"Unsupported translator: {name}. Supported translators: {supported}.")
     return LibreTranslateTranslator(url=url, timeout=timeout, retries=retries)
-

@@ -10,6 +10,7 @@ from ebooklib import ITEM_DOCUMENT
 from ebooklib import epub
 
 from .cache import TranslationCache
+from .domain import TranslationOptions
 from .glossary import Glossary
 from .html_translate import HtmlTranslationStats, extract_visible_text, translate_html
 from .translator import Translator
@@ -39,6 +40,41 @@ class TranslationReport:
     errors: list[str] = field(default_factory=list)
     output_path: Path | None = None
 
+    def record_missing_document(self, document: "EpubDocument") -> str:
+        message = f"{document.name}: document not found in EPUB archive at {document.archive_path}"
+        self.errors.append(message)
+        return message
+
+    def record_chapter(self, stats: HtmlTranslationStats) -> None:
+        self.texts_translated += stats.translated
+        self.texts_from_cache += stats.from_cache
+        self.texts_skipped += stats.skipped
+        self.errors.extend(stats.errors)
+        self.chapters_processed += 1
+
+    def record_chapter_error(self, document: "EpubDocument", exc: Exception) -> None:
+        self.errors.append(f"{document.name}: {exc}")
+
+
+@dataclass(frozen=True)
+class EpubDocument:
+    name: str
+    archive_path: str
+
+
+@dataclass
+class EpubReplacements:
+    items: dict[str, bytes] = field(default_factory=dict)
+
+    def add(self, archive_path: str, content: bytes) -> None:
+        self.items[archive_path] = content
+
+    def content_for(self, filename: str, source_epub: ZipFile) -> bytes:
+        replacement = self.items.get(filename)
+        if replacement is not None:
+            return replacement
+        return source_epub.read(filename)
+
 
 def inspect_epub(path: str | Path) -> EpubInfo:
     epub_path = Path(path)
@@ -63,12 +99,8 @@ def translate_epub(
     output_path: str | Path,
     translator: Translator,
     cache: TranslationCache,
-    source: str,
-    target: str,
+    options: TranslationOptions,
     glossary: Glossary | None = None,
-    dry_run: bool = False,
-    fail_fast: bool = False,
-    chunk_limit: int = 3000,
     on_chapter_start: ChapterStartCallback | None = None,
     on_chapter_done: ChapterDoneCallback | None = None,
     on_text_processed: TextProgressCallback | None = None,
@@ -78,53 +110,48 @@ def translate_epub(
     book = epub.read_epub(str(source_path))
     report = TranslationReport(output_path=destination_path)
     opf_base_path = _get_opf_base_path(source_path)
-    replacements: dict[str, bytes] = {}
+    replacements = EpubReplacements()
 
-    documents = list(book.get_items_of_type(ITEM_DOCUMENT))
+    documents = _document_entries(book, opf_base_path)
     total_documents = len(documents)
 
     with ZipFile(source_path, "r") as source_epub:
         archive_names = set(source_epub.namelist())
 
-        for index, item in enumerate(documents, start=1):
-            item_name = item.get_name()
-            item_path = _document_zip_path(opf_base_path, item_name)
-            if item_path not in archive_names:
-                message = f"{item_name}: document not found in EPUB archive at {item_path}"
-                report.errors.append(message)
-                if fail_fast:
-                    raise FileNotFoundError(item_path)
+        for index, document in enumerate(documents, start=1):
+            if document.archive_path not in archive_names:
+                report.record_missing_document(document)
+                if options.fail_fast:
+                    raise FileNotFoundError(document.archive_path)
                 continue
 
             if on_chapter_start:
-                on_chapter_start(index, total_documents, item_name)
+                on_chapter_start(index, total_documents, document.name)
 
             try:
                 translated_content, stats = translate_html(
-                    source_epub.read(item_path),
+                    source_epub.read(document.archive_path),
                     translator=translator,
                     cache=cache,
-                    source=source,
-                    target=target,
+                    source=options.source,
+                    target=options.target,
                     glossary=glossary,
-                    dry_run=dry_run,
-                    fail_fast=fail_fast,
-                    chunk_limit=chunk_limit,
+                    dry_run=options.dry_run,
+                    fail_fast=options.fail_fast,
+                    chunk_limit=options.chunk_limit,
                     on_text_processed=on_text_processed,
                 )
-                if not dry_run:
-                    replacements[item_path] = translated_content
-                _merge_stats(report, stats)
-                report.chapters_processed += 1
+                if not options.dry_run:
+                    replacements.add(document.archive_path, translated_content)
+                report.record_chapter(stats)
                 if on_chapter_done:
-                    on_chapter_done(index, total_documents, item_name, stats)
+                    on_chapter_done(index, total_documents, document.name, stats)
             except Exception as exc:
-                message = f"{item_name}: {exc}"
-                report.errors.append(message)
-                if fail_fast:
+                report.record_chapter_error(document, exc)
+                if options.fail_fast:
                     raise
 
-    if not dry_run:
+    if not options.dry_run:
         destination_path.parent.mkdir(parents=True, exist_ok=True)
         _copy_epub_with_replacements(source_path, destination_path, replacements)
 
@@ -177,16 +204,22 @@ def _document_zip_path(opf_base_path: PurePosixPath, item_name: str) -> str:
     return path.as_posix()
 
 
+def _document_entries(book: epub.EpubBook, opf_base_path: PurePosixPath) -> list[EpubDocument]:
+    documents: list[EpubDocument] = []
+    for item in book.get_items_of_type(ITEM_DOCUMENT):
+        name = item.get_name()
+        documents.append(EpubDocument(name=name, archive_path=_document_zip_path(opf_base_path, name)))
+    return documents
+
+
 def _copy_epub_with_replacements(
     input_path: Path,
     output_path: Path,
-    replacements: dict[str, bytes],
+    replacements: EpubReplacements,
 ) -> None:
     with ZipFile(input_path, "r") as source_epub, ZipFile(output_path, "w") as output_epub:
         for info in source_epub.infolist():
-            data = replacements.get(info.filename)
-            if data is None:
-                data = source_epub.read(info.filename)
+            data = replacements.content_for(info.filename, source_epub)
             if info.filename == "mimetype":
                 info.compress_type = ZIP_STORED
             output_epub.writestr(info, data)
@@ -197,10 +230,3 @@ def _first_metadata(book: epub.EpubBook, namespace: str, name: str) -> str | Non
     if not values:
         return None
     return values[0][0]
-
-
-def _merge_stats(report: TranslationReport, stats: HtmlTranslationStats) -> None:
-    report.texts_translated += stats.translated
-    report.texts_from_cache += stats.from_cache
-    report.texts_skipped += stats.skipped
-    report.errors.extend(stats.errors)
