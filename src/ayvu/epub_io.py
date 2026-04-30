@@ -11,7 +11,7 @@ from ebooklib import epub
 
 from .cache import TranslationCache
 from .glossary import Glossary
-from .html_translate import HtmlTranslationStats, translate_html
+from .html_translate import HtmlTranslationStats, extract_visible_text, translate_html
 from .translator import Translator
 
 
@@ -139,10 +139,7 @@ def extract_markdown(input_path: str | Path, output_dir: str | Path) -> list[Pat
     written: list[Path] = []
 
     for index, item in enumerate(book.get_items_of_type(ITEM_DOCUMENT), start=1):
-        from bs4 import BeautifulSoup
-
-        soup = BeautifulSoup(item.get_content(), "lxml")
-        text = soup.get_text("\n")
+        text = "\n".join(extract_visible_text(item.get_content()))
         file_path = destination / f"{index:03d}-{Path(item.get_name()).stem}.md"
         file_path.write_text(_clean_extracted_text(text), encoding="utf-8")
         written.append(file_path)
