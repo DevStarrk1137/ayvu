@@ -1,17 +1,24 @@
-from ayvu.cache import TranslationCache
+from ayvu.cache import CacheKey, TranslationCache
+from ayvu.domain import LanguagePair
+
+
+def _cache_key(text: str, source: str = "en", target: str = "pt") -> CacheKey:
+    return CacheKey(text=text, language_pair=LanguagePair(source=source, target=target))
 
 
 def test_cache_round_trip(tmp_path):
     cache_path = tmp_path / "translations.sqlite"
     with TranslationCache(cache_path) as cache:
-        assert cache.get("Hello", "en", "pt") is None
-        cache.set("Hello", "Olá", "en", "pt")
-        assert cache.get("Hello", "en", "pt") == "Olá"
+        key = _cache_key("Hello")
+
+        assert cache.get(key) is None
+        cache.set(key, "Olá")
+        assert cache.get(key) == "Olá"
 
 
 def test_cache_is_language_specific(tmp_path):
     cache_path = tmp_path / "translations.sqlite"
     with TranslationCache(cache_path) as cache:
-        cache.set("Hello", "Olá", "en", "pt")
-        assert cache.get("Hello", "en", "es") is None
+        cache.set(_cache_key("Hello", "en", "pt"), "Olá")
 
+        assert cache.get(_cache_key("Hello", "en", "es")) is None

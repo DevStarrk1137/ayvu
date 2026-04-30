@@ -5,8 +5,9 @@ from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup, Comment, Declaration, Doctype, NavigableString, ProcessingInstruction
 
-from .cache import TranslationCache
+from .cache import CacheKey, TranslationCache
 from .chunking import split_text
+from .domain import LanguagePair
 from .glossary import Glossary, apply_glossary
 from .translator import Translator
 
@@ -112,7 +113,9 @@ def translate_text(
     if not parts.core:
         return TextTranslationResult(text=text)
 
-    cached = cache.get(parts.core, source, target)
+    language_pair = LanguagePair(source=source, target=target)
+    cache_key = CacheKey(text=parts.core, language_pair=language_pair)
+    cached = cache.get(cache_key)
     if cached is not None:
         return TextTranslationResult(text=parts.restore(apply_glossary(cached, glossary)), from_cache=True)
 
@@ -124,7 +127,7 @@ def translate_text(
         for chunk in split_text(parts.core, limit=chunk_limit)
     ]
     translated = "".join(translated_chunks)
-    cache.set(parts.core, translated, source, target)
+    cache.set(cache_key, translated)
     translated = apply_glossary(translated, glossary)
     return TextTranslationResult(text=parts.restore(translated))
 
