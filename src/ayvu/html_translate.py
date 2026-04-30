@@ -23,6 +23,27 @@ class HtmlTranslationStats:
     errors: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class TextParts:
+    leading: str
+    core: str
+    trailing: str
+
+    @classmethod
+    def from_text(cls, text: str) -> "TextParts":
+        leading = text[: len(text) - len(text.lstrip())]
+        trailing = text[len(text.rstrip()) :]
+        return cls(leading=leading, core=text.strip(), trailing=trailing)
+
+    def restore(self, core: str) -> str:
+        return self.leading + core + self.trailing
+
+
+def extract_visible_text(html: str | bytes) -> list[str]:
+    soup = BeautifulSoup(html, "lxml-xml")
+    return [str(text_node) for text_node in _visible_text_nodes(soup) if str(text_node).strip()]
+
+
 def translate_html(
     html: str | bytes,
     translator: Translator,
@@ -40,14 +61,11 @@ def translate_html(
     stats = HtmlTranslationStats()
 
     for text_node in list(soup.find_all(string=True)):
-        if not _is_visible_text_node(text_node):
+        if not _is_translatable_text_node(text_node):
             stats.skipped += 1
             continue
 
         original = str(text_node)
-        if not original.strip():
-            stats.skipped += 1
-            continue
 
         try:
             translated_text, used_cache = translate_text(
@@ -62,15 +80,7 @@ def translate_html(
             )
             if not dry_run:
                 text_node.replace_with(NavigableString(translated_text))
-            if used_cache:
-                stats.from_cache += 1
-                _notify_text_processed(on_text_processed, "cache")
-            elif dry_run:
-                stats.translated += 1
-                _notify_text_processed(on_text_processed, "dry_run")
-            else:
-                stats.translated += 1
-                _notify_text_processed(on_text_processed, "translated")
+            _record_success(stats, used_cache, dry_run, on_text_processed)
         except Exception as exc:
             stats.errors.append(str(exc))
             _notify_text_processed(on_text_processed, "error")
@@ -92,27 +102,35 @@ def translate_text(
     dry_run: bool = False,
     chunk_limit: int = 3000,
 ) -> tuple[str, bool]:
-    leading = text[: len(text) - len(text.lstrip())]
-    trailing = text[len(text.rstrip()) :]
-    core = text.strip()
-    if not core:
+    parts = TextParts.from_text(text)
+    if not parts.core:
         return text, False
 
-    cached = cache.get(core, source, target)
+    cached = cache.get(parts.core, source, target)
     if cached is not None:
-        return leading + apply_glossary(cached, glossary) + trailing, True
+        return parts.restore(apply_glossary(cached, glossary)), True
 
     if dry_run:
         return text, False
 
     translated_chunks = [
         translator.translate(chunk, source, target)
-        for chunk in split_text(core, limit=chunk_limit)
+        for chunk in split_text(parts.core, limit=chunk_limit)
     ]
     translated = "".join(translated_chunks)
-    cache.set(core, translated, source, target)
+    cache.set(parts.core, translated, source, target)
     translated = apply_glossary(translated, glossary)
-    return leading + translated + trailing, False
+    return parts.restore(translated), False
+
+
+def _visible_text_nodes(soup: BeautifulSoup) -> list[NavigableString]:
+    return [text_node for text_node in soup.find_all(string=True) if _is_visible_text_node(text_node)]
+
+
+def _is_translatable_text_node(text_node: NavigableString) -> bool:
+    if not _is_visible_text_node(text_node):
+        return False
+    return bool(str(text_node).strip())
 
 
 def _is_visible_text_node(text_node: NavigableString) -> bool:
@@ -130,3 +148,21 @@ def _is_visible_text_node(text_node: NavigableString) -> bool:
 def _notify_text_processed(callback: TextProgressCallback | None, status: str) -> None:
     if callback:
         callback(status)
+
+
+def _record_success(
+    stats: HtmlTranslationStats,
+    used_cache: bool,
+    dry_run: bool,
+    on_text_processed: TextProgressCallback | None,
+) -> None:
+    if used_cache:
+        stats.from_cache += 1
+        _notify_text_processed(on_text_processed, "cache")
+        return
+
+    stats.translated += 1
+    if dry_run:
+        _notify_text_processed(on_text_processed, "dry_run")
+        return
+    _notify_text_processed(on_text_processed, "translated")

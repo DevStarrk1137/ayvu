@@ -1,5 +1,5 @@
 from ayvu.cache import TranslationCache
-from ayvu.html_translate import translate_html
+from ayvu.html_translate import extract_visible_text, translate_html
 from ayvu.translator import Translator
 
 
@@ -78,3 +78,20 @@ def test_translate_html_does_not_translate_doctype_or_comments(tmp_path):
     assert "<p>Mantenha-me</p>" in result
     assert translator.calls == ["Keep me"]
     assert stats.translated == 1
+
+
+def test_extract_visible_text_uses_translation_visibility_rules():
+    html = """
+    <html><body>
+      <!-- Keep me out -->
+      <p>Keep me</p>
+      <script>Keep me out</script>
+      <style>.x { content: "Keep me out"; }</style>
+      <code>Keep me out</code>
+      <pre>Keep me out</pre>
+      <svg><text>Keep me out</text></svg>
+      <math><mi>Keep me out</mi></math>
+    </body></html>
+    """
+
+    assert extract_visible_text(html) == ["Keep me"]
