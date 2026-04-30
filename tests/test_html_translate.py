@@ -1,4 +1,5 @@
-from ayvu.cache import TranslationCache
+from ayvu.cache import CacheKey, TranslationCache
+from ayvu.domain import LanguagePair
 from ayvu.html_translate import extract_visible_text, translate_html, translate_text
 from ayvu.translator import Translator
 
@@ -69,7 +70,8 @@ def test_translate_html_uses_cache(tmp_path):
 def test_translate_text_result_reports_cache_hit(tmp_path):
     translator = FakeTranslator()
     with TranslationCache(tmp_path / "cache.sqlite") as cache:
-        cache.set("Keep me", "Mantenha-me", "en", "pt")
+        cache_key = CacheKey(text="Keep me", language_pair=LanguagePair(source="en", target="pt"))
+        cache.set(cache_key, "Mantenha-me")
 
         result = translate_text(" Keep me ", translator, cache, "en", "pt")
 
