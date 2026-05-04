@@ -3,8 +3,10 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from ayvu.cli import TextProgressCounters, app
+from ayvu.cli import TextProgressCounters, _offer_markdown_report, _render_markdown_report, _save_markdown_report, app
 from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions
+from ayvu.epub_io import TranslationReport
+from ayvu.validation import ValidationResult
 
 
 runner = CliRunner()
@@ -125,3 +127,107 @@ def test_translate_command_continues_when_existing_output_is_confirmed(tmp_path)
     assert "Unsupported translator: unknown" in result.output
     assert output_path.read_text(encoding="utf-8") == "already here"
     assert "Traceback" not in result.output
+
+
+def test_render_markdown_report_includes_translation_context():
+    report = TranslationReport(
+        chapters_processed=2,
+        texts_translated=3,
+        texts_from_cache=1,
+        errors=["chapter.xhtml: failed\nwhile translating"],
+        output_path=Path("books/book-pt.epub"),
+        input_path=Path("books/book.epub"),
+        detected_language="en",
+        target_language="pt",
+    )
+
+    markdown = _render_markdown_report(report, dry_run=False)
+
+    assert "# Translation report" in markdown
+    assert "- Original EPUB: books/book.epub" in markdown
+    assert "- Detected language: en" in markdown
+    assert "- Translated language: pt" in markdown
+    assert "- Output: books/book-pt.epub" in markdown
+    assert "- Chapters processed: 2" in markdown
+    assert "- Texts translated: 3" in markdown
+    assert "- Texts from cache: 1" in markdown
+    assert "- Errors: 1" in markdown
+    assert "- chapter.xhtml: failed while translating" in markdown
+
+
+def test_save_markdown_report_uses_default_reports_dir_without_overwriting(tmp_path, monkeypatch):
+    reports_dir = tmp_path / "reports"
+    report = TranslationReport(
+        output_path=Path("book-pt.epub"),
+        input_path=Path("book.epub"),
+        target_language="pt",
+    )
+    monkeypatch.setattr("ayvu.cli._default_reports_dir", lambda: reports_dir)
+
+    first_path = _save_markdown_report(report, dry_run=False)
+    second_path = _save_markdown_report(report, dry_run=False)
+
+    assert first_path == reports_dir / "book-pt-report.md"
+    assert second_path == reports_dir / "book-pt-report-2.md"
+    assert first_path.read_text(encoding="utf-8").startswith("# Translation report")
+    assert second_path.read_text(encoding="utf-8").startswith("# Translation report")
+
+
+def test_offer_markdown_report_does_not_save_when_declined(monkeypatch):
+    saved = False
+
+    def fake_save_report(_report: TranslationReport, _dry_run: bool) -> Path:
+        nonlocal saved
+        saved = True
+        return Path("report.md")
+
+    monkeypatch.setattr("ayvu.cli.typer.confirm", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("ayvu.cli._save_markdown_report", fake_save_report)
+
+    _offer_markdown_report(TranslationReport(), dry_run=False)
+
+    assert not saved
+
+
+def test_translate_command_offers_and_saves_markdown_report(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    reports_dir = tmp_path / "reports"
+    epub_path.write_bytes(b"fake epub")
+
+    report = TranslationReport(
+        chapters_processed=1,
+        texts_translated=2,
+        texts_from_cache=1,
+        output_path=output_path,
+        input_path=epub_path,
+        detected_language="en",
+        target_language="pt",
+    )
+    monkeypatch.setattr("ayvu.cli.load_glossary", lambda _path: None)
+    monkeypatch.setattr("ayvu.cli.create_translator", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", lambda *_args, **_kwargs: report)
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
+    monkeypatch.setattr("ayvu.cli._default_reports_dir", lambda: reports_dir)
+
+    result = runner.invoke(app, ["translate", str(epub_path), "--output", str(output_path)], input="y\n")
+
+    report_path = reports_dir / "book-pt-report.md"
+    assert result.exit_code == 0
+    assert "Translation report" in result.output
+    assert "Original EPUB" in result.output
+    assert "Detected language" in result.output
+    assert "Save translation report as Markdown?" in result.output
+    assert "Report saved to:" in result.output
+    assert report_path.exists()
+    assert "- Original EPUB: " in report_path.read_text(encoding="utf-8")
+    assert str(epub_path) in report_path.read_text(encoding="utf-8")
+
+
+class FakeCache:
+    def __enter__(self) -> "FakeCache":
+        return self
+
+    def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+        return None
