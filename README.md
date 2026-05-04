@@ -119,7 +119,8 @@ uv run ayvu translate livro.epub \
   --glossary glossary.json
 ```
 
-Sobrescrever uma saída existente:
+Se a saída já existir, o Ayvu mostra o caminho calculado e pergunta se deve sobrescrever.
+Para pular a pergunta e sobrescrever direto:
 
 ```bash
 uv run ayvu translate livro.epub \

@@ -86,3 +86,42 @@ def test_translate_command_has_clear_error_for_unknown_translator(tmp_path):
     assert "Unsupported translator: unknown" in result.output
     assert "Use --translator libretranslate." in result.output
     assert "Traceback" not in result.output
+
+
+def test_translate_command_asks_before_overwriting_existing_output_and_cancels(tmp_path):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    epub_path.write_bytes(b"not a real epub")
+    output_path.write_text("already here", encoding="utf-8")
+
+    result = runner.invoke(app, ["translate", str(epub_path), "--output", str(output_path)], input="n\n")
+
+    assert result.exit_code == 1
+    assert "Output path:" in result.output
+    assert str(output_path) in result.output
+    assert "Translated EPUB already exists." in result.output
+    assert "Overwrite existing translated EPUB?" in result.output
+    assert "Canceled:" in result.output
+    assert "existing output was not changed." in result.output
+    assert output_path.read_text(encoding="utf-8") == "already here"
+    assert "Traceback" not in result.output
+
+
+def test_translate_command_continues_when_existing_output_is_confirmed(tmp_path):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    epub_path.write_bytes(b"not a real epub")
+    output_path.write_text("already here", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["translate", str(epub_path), "--output", str(output_path), "--translator", "unknown"],
+        input="y\n",
+    )
+
+    assert result.exit_code == 1
+    assert "Overwrite existing translated EPUB?" in result.output
+    assert "Translator error:" in result.output
+    assert "Unsupported translator: unknown" in result.output
+    assert output_path.read_text(encoding="utf-8") == "already here"
+    assert "Traceback" not in result.output
