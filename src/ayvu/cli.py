@@ -9,7 +9,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 from rich.table import Table
 
 from .cache import TranslationCache
-from .cli_progress import TranslationProgress
+from .cli_progress import TranslationProgress, TranslationProgressSnapshot
 from .domain import LanguagePair, OutputPlan, TranslationOptions
 from .epub_io import TranslationReport, extract_markdown, inspect_epub, translate_epub
 from .preflight import PreflightError, run_translation_preflight
@@ -110,28 +110,38 @@ def translate(
         console.print(exc.next_step)
         raise typer.Exit(code=1) from exc
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
-        progress_view = TranslationProgress(progress, dry_run=dry_run)
+    progress_view: TranslationProgress | None = None
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            progress_view = TranslationProgress(progress, dry_run=dry_run)
 
-        with TranslationCache(cache_path) as cache:
-            report = translate_epub(
-                epub_path,
-                output_path,
-                translator=preflight.translator,
-                cache=cache,
-                options=translation_options,
-                glossary=preflight.glossary,
-                on_chapter_start=progress_view.chapter_started,
-                on_chapter_done=progress_view.chapter_done,
-                on_text_processed=progress_view.text_processed,
-            )
+            with TranslationCache(cache_path) as cache:
+                report = translate_epub(
+                    epub_path,
+                    output_path,
+                    translator=preflight.translator,
+                    cache=cache,
+                    options=translation_options,
+                    glossary=preflight.glossary,
+                    on_chapter_start=progress_view.chapter_started,
+                    on_chapter_done=progress_view.chapter_done,
+                    on_text_processed=progress_view.text_processed,
+                )
+    except KeyboardInterrupt as exc:
+        _print_interrupted_translation(
+            snapshot=progress_view.snapshot() if progress_view else None,
+            output_path=output_path,
+            cache_path=cache_path,
+            dry_run=dry_run,
+        )
+        raise typer.Exit(code=1) from exc
 
     _print_report(report, dry_run)
     _offer_markdown_report(report, dry_run)
@@ -177,6 +187,47 @@ def _print_report(report: TranslationReport, dry_run: bool) -> None:
 
     for error in report.errors:
         console.print(f"[yellow]Error:[/yellow] {error}")
+
+
+def _print_interrupted_translation(
+    snapshot: TranslationProgressSnapshot | None,
+    output_path: Path,
+    cache_path: Path,
+    dry_run: bool,
+) -> None:
+    console.print("[yellow]Translation interrupted by user.[/yellow]")
+    console.print("Cached translations saved before the interruption can be reused with the same --cache path.")
+    console.print(f"Cache path: {cache_path}")
+    console.print(_interrupted_output_message(output_path, dry_run))
+
+    if snapshot is None:
+        return
+
+    table = Table(title="Partial translation progress")
+    table.add_column("Metric")
+    table.add_column("Value")
+    table.add_row("Chapters processed", _partial_chapter_value(snapshot))
+    table.add_row("Texts processed", str(snapshot.texts_processed))
+    table.add_row("Texts translated", str(snapshot.texts_translated))
+    table.add_row("Texts from cache", str(snapshot.texts_from_cache))
+    table.add_row("Texts dry-run", str(snapshot.texts_dry_run))
+    table.add_row("Text errors", str(snapshot.text_errors))
+    table.add_row("Current chapter", snapshot.current_chapter or "-")
+    console.print(table)
+
+
+def _partial_chapter_value(snapshot: TranslationProgressSnapshot) -> str:
+    if snapshot.total_chapters is None:
+        return str(snapshot.chapters_processed)
+    return f"{snapshot.chapters_processed}/{snapshot.total_chapters}"
+
+
+def _interrupted_output_message(output_path: Path, dry_run: bool) -> str:
+    if dry_run:
+        return "Dry run interrupted; no translated EPUB was expected."
+    if output_path.exists():
+        return f"Translated EPUB may be incomplete: {output_path}"
+    return f"Translated EPUB was not written: {output_path}"
 
 
 def _offer_markdown_report(report: TranslationReport, dry_run: bool) -> None:

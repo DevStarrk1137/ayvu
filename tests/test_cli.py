@@ -232,6 +232,58 @@ def test_translate_command_offers_and_saves_markdown_report(tmp_path, monkeypatc
     assert str(epub_path) in report_path.read_text(encoding="utf-8")
 
 
+def test_translate_command_handles_keyboard_interrupt_cleanly(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    cache_path = tmp_path / "cache.sqlite"
+    epub_path.write_bytes(b"fake epub")
+
+    def interrupt_translation(*_args: object, **kwargs: object) -> TranslationReport:
+        kwargs["on_chapter_start"](1, 3, "chapter-one.xhtml")
+        kwargs["on_text_processed"]("translated")
+        kwargs["on_text_processed"]("cache")
+        kwargs["on_text_processed"]("error")
+        kwargs["on_chapter_done"](1, 3, "chapter-one.xhtml", object())
+        kwargs["on_chapter_start"](2, 3, "chapter-two.xhtml")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+    )
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", interrupt_translation)
+
+    result = runner.invoke(
+        app,
+        [
+            "translate",
+            str(epub_path),
+            "--output",
+            str(output_path),
+            "--cache",
+            str(cache_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Translation interrupted by user." in result.output
+    assert "Partial translation progress" in result.output
+    assert "Chapters processed" in result.output
+    assert "1/3" in result.output
+    assert "Texts processed" in result.output
+    assert "3" in result.output
+    assert "Texts translated" in result.output
+    assert "Texts from cache" in result.output
+    assert "Text errors" in result.output
+    assert "chapter-two.xhtml" in result.output
+    assert "Cached translations saved before the interruption can be reused" in result.output
+    assert str(cache_path) in result.output
+    assert "Translated EPUB was not written:" in result.output
+    assert "Traceback" not in result.output
+    assert not output_path.exists()
+
+
 class FakeCache:
     def __enter__(self) -> "FakeCache":
         return self
