@@ -39,6 +39,9 @@ class TranslationReport:
     texts_skipped: int = 0
     errors: list[str] = field(default_factory=list)
     output_path: Path | None = None
+    input_path: Path | None = None
+    detected_language: str | None = None
+    target_language: str | None = None
 
     def record_missing_document(self, document: "EpubDocument") -> str:
         message = f"{document.name}: document not found in EPUB archive at {document.archive_path}"
@@ -108,7 +111,12 @@ def translate_epub(
     source_path = Path(input_path)
     destination_path = Path(output_path)
     book = epub.read_epub(str(source_path))
-    report = TranslationReport(output_path=destination_path)
+    report = TranslationReport(
+        output_path=destination_path,
+        input_path=source_path,
+        detected_language=_first_metadata(book, "DC", "language"),
+        target_language=options.target,
+    )
     opf_base_path = _get_opf_base_path(source_path)
     replacements = EpubReplacements()
 

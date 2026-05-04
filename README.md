@@ -136,6 +136,11 @@ uv run ayvu translate livro.epub \
   --dry-run
 ```
 
+Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original,
+idiomas, saída calculada, capítulos processados, textos traduzidos, cache e erros.
+Também pergunta se deve salvar esse relatório em Markdown em
+`~/Documentos/Livros/Relatorios`.
+
 Extrair texto visível para Markdown:
 
 ```bash

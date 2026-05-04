@@ -11,7 +11,7 @@ from rich.table import Table
 
 from .cache import TranslationCache
 from .domain import LanguagePair, OutputPlan, TranslationOptions
-from .epub_io import extract_markdown, inspect_epub, translate_epub
+from .epub_io import TranslationReport, extract_markdown, inspect_epub, translate_epub
 from .glossary import GlossaryError, load_glossary
 from .translator import LibreTranslateTranslator, TranslatorError, create_translator
 from .validation import validate_output_epub
@@ -198,14 +198,8 @@ def translate(
                 on_text_processed=progress_view.text_processed,
             )
 
-    _print_report(
-        report.chapters_processed,
-        report.texts_translated,
-        report.texts_from_cache,
-        report.errors,
-        output_path,
-        dry_run,
-    )
+    _print_report(report, dry_run)
+    _offer_markdown_report(report, dry_run)
 
     if not dry_run:
         validation = validate_output_epub(output_path)
@@ -232,26 +226,107 @@ def extract(
     console.print(f"[green]Extracted {len(written)} Markdown files to[/green] {output}")
 
 
-def _print_report(
-    chapters_processed: int,
-    translated: int,
-    from_cache: int,
-    errors: list[str],
-    output: Path,
-    dry_run: bool,
-) -> None:
+def _print_report(report: TranslationReport, dry_run: bool) -> None:
     table = Table(title="Translation report")
     table.add_column("Metric")
     table.add_column("Value")
-    table.add_row("Chapters processed", str(chapters_processed))
-    table.add_row("Texts translated", str(translated))
-    table.add_row("Texts from cache", str(from_cache))
-    table.add_row("Errors", str(len(errors)))
-    table.add_row("Output", str(output) if not dry_run else "(dry run, no file written)")
+    table.add_row("Original EPUB", _display_optional_path(report.input_path))
+    table.add_row("Detected language", report.detected_language or "-")
+    table.add_row("Translated language", report.target_language or "-")
+    table.add_row("Output", _report_output_value(report, dry_run))
+    table.add_row("Chapters processed", str(report.chapters_processed))
+    table.add_row("Texts translated", str(report.texts_translated))
+    table.add_row("Texts from cache", str(report.texts_from_cache))
+    table.add_row("Errors", str(len(report.errors)))
     console.print(table)
 
-    for error in errors:
+    for error in report.errors:
         console.print(f"[yellow]Error:[/yellow] {error}")
+
+
+def _offer_markdown_report(report: TranslationReport, dry_run: bool) -> None:
+    if not typer.confirm("Save translation report as Markdown?", default=False):
+        return
+
+    path = _save_markdown_report(report, dry_run)
+    console.print(f"[green]Report saved to:[/green] {path}")
+
+
+def _save_markdown_report(report: TranslationReport, dry_run: bool) -> Path:
+    directory = _default_reports_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = _next_available_report_path(directory, _report_filename_stem(report))
+    path.write_text(_render_markdown_report(report, dry_run), encoding="utf-8")
+    return path
+
+
+def _render_markdown_report(report: TranslationReport, dry_run: bool) -> str:
+    lines = [
+        "# Translation report",
+        "",
+        f"- Original EPUB: {_display_optional_path(report.input_path)}",
+        f"- Detected language: {report.detected_language or '-'}",
+        f"- Translated language: {report.target_language or '-'}",
+        f"- Output: {_report_output_value(report, dry_run)}",
+        f"- Chapters processed: {report.chapters_processed}",
+        f"- Texts translated: {report.texts_translated}",
+        f"- Texts from cache: {report.texts_from_cache}",
+        f"- Errors: {len(report.errors)}",
+    ]
+
+    if report.errors:
+        lines.extend(["", "## Errors"])
+        lines.extend(f"- {_single_line(error)}" for error in report.errors)
+
+    return "\n".join(lines) + "\n"
+
+
+def _default_reports_dir() -> Path:
+    return Path.home() / "Documentos" / "Livros" / "Relatorios"
+
+
+def _next_available_report_path(directory: Path, stem: str) -> Path:
+    path = directory / f"{stem}.md"
+    index = 2
+    while path.exists():
+        path = directory / f"{stem}-{index}.md"
+        index += 1
+    return path
+
+
+def _report_filename_stem(report: TranslationReport) -> str:
+    source = _safe_filename_part(report.input_path.stem if report.input_path else "translation")
+    target = _safe_filename_part(report.target_language or "translated")
+    return f"{source}-{target}-report"
+
+
+def _safe_filename_part(value: str) -> str:
+    clean = []
+    for char in value.strip():
+        if char.isalnum() or char in ("-", "_"):
+            clean.append(char)
+            continue
+        if char in (" ", "."):
+            clean.append("-")
+
+    filename = "".join(clean).strip("-_")
+    return filename or "translation"
+
+
+def _display_optional_path(path: Path | None) -> str:
+    if path is None:
+        return "-"
+    return str(path)
+
+
+def _report_output_value(report: TranslationReport, dry_run: bool) -> str:
+    if dry_run:
+        return "(dry run, no file written)"
+    return _display_optional_path(report.output_path)
+
+
+def _single_line(value: str) -> str:
+    return " ".join(value.split())
 
 
 def _confirm_existing_output_overwrite(output_path: Path) -> bool:
