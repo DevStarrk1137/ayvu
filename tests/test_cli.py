@@ -1,10 +1,9 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 from typer.testing import CliRunner
 
-from ayvu.cli import TextProgressCounters, _offer_markdown_report, _render_markdown_report, _save_markdown_report, app
+from ayvu.cli import _offer_markdown_report, _render_markdown_report, _save_markdown_report, app
 from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions
 from ayvu.epub_io import TranslationReport
 from ayvu.preflight import PreflightError
@@ -55,28 +54,6 @@ def test_translation_options_exposes_language_pair_values():
 
     assert options.source == "en"
     assert options.target == "pt"
-
-
-def test_text_progress_counters_track_known_statuses():
-    counters = TextProgressCounters()
-
-    counters.record("translated")
-    counters.record("cache")
-    counters.record("dry_run")
-    counters.record("error")
-
-    assert counters.processed == 4
-    assert counters.new_count(dry_run=False) == 1
-    assert counters.new_count(dry_run=True) == 1
-    assert counters.cache == 1
-    assert counters.error == 1
-
-
-def test_text_progress_counters_reject_unknown_status():
-    counters = TextProgressCounters()
-
-    with pytest.raises(ValueError, match="Unknown text progress status"):
-        counters.record("unknown")
 
 
 def test_translate_command_has_clear_error_for_unknown_translator(tmp_path):
