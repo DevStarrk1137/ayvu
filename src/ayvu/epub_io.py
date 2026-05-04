@@ -31,6 +31,32 @@ class EpubInfo:
     item_count: int
 
 
+@dataclass(frozen=True)
+class EpubDocument:
+    name: str
+    archive_path: str
+
+
+@dataclass(frozen=True)
+class EpubStructureError:
+    document: EpubDocument
+    detail: str
+
+    @classmethod
+    def missing_document(cls, document: EpubDocument) -> "EpubStructureError":
+        return cls(
+            document=document,
+            detail=f"document not found in EPUB archive at {document.archive_path}",
+        )
+
+    @classmethod
+    def chapter_error(cls, document: EpubDocument, exc: Exception) -> "EpubStructureError":
+        return cls(document=document, detail=str(exc))
+
+    def as_message(self) -> str:
+        return f"{self.document.name}: {self.detail}"
+
+
 @dataclass
 class TranslationReport:
     chapters_processed: int = 0
@@ -43,10 +69,8 @@ class TranslationReport:
     detected_language: str | None = None
     target_language: str | None = None
 
-    def record_missing_document(self, document: "EpubDocument") -> str:
-        message = f"{document.name}: document not found in EPUB archive at {document.archive_path}"
+    def record_error(self, message: str) -> None:
         self.errors.append(message)
-        return message
 
     def record_chapter(self, stats: HtmlTranslationStats) -> None:
         self.texts_translated += stats.translated
@@ -54,15 +78,6 @@ class TranslationReport:
         self.texts_skipped += stats.skipped
         self.errors.extend(stats.errors)
         self.chapters_processed += 1
-
-    def record_chapter_error(self, document: "EpubDocument", exc: Exception) -> None:
-        self.errors.append(f"{document.name}: {exc}")
-
-
-@dataclass(frozen=True)
-class EpubDocument:
-    name: str
-    archive_path: str
 
 
 @dataclass
@@ -128,7 +143,7 @@ def translate_epub(
 
         for index, document in enumerate(documents, start=1):
             if document.archive_path not in archive_names:
-                report.record_missing_document(document)
+                report.record_error(EpubStructureError.missing_document(document).as_message())
                 if options.fail_fast:
                     raise FileNotFoundError(document.archive_path)
                 continue
@@ -155,7 +170,7 @@ def translate_epub(
                 if on_chapter_done:
                     on_chapter_done(index, total_documents, document.name, stats)
             except Exception as exc:
-                report.record_chapter_error(document, exc)
+                report.record_error(EpubStructureError.chapter_error(document, exc).as_message())
                 if options.fail_fast:
                     raise
 
