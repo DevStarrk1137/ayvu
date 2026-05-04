@@ -157,9 +157,9 @@ def translate(
     output_path = output_plan.path
 
     if output_plan.blocks_existing_file(overwrite):
-        console.print(f"[red]Output already exists:[/red] {output_path}")
-        console.print("Use --overwrite to replace it.")
-        raise typer.Exit(code=1)
+        if not _confirm_existing_output_overwrite(output_path):
+            console.print("[red]Canceled:[/red] existing output was not changed.")
+            raise typer.Exit(code=1)
 
     try:
         glossary = load_glossary(glossary_path)
@@ -252,6 +252,12 @@ def _print_report(
 
     for error in errors:
         console.print(f"[yellow]Error:[/yellow] {error}")
+
+
+def _confirm_existing_output_overwrite(output_path: Path) -> bool:
+    console.print(f"[yellow]Output path:[/yellow] {output_path}")
+    console.print("[yellow]Translated EPUB already exists.[/yellow]")
+    return typer.confirm("Overwrite existing translated EPUB?", default=False)
 
 
 def _shorten(text: str, max_length: int = 50) -> str:
