@@ -29,3 +29,9 @@ livro-extraido/
 # Local configuration and private glossary
 .codex
 glossary.json
+AGENTS.md
+AGENTS-Geral.md
+docs/*
+
+# Personal Ayvu workspace
+.ayvu-pessoal/

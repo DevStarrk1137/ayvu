@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -80,6 +81,46 @@ class TranslationCache:
             ),
         )
         self.connection.commit()
+
+    def verify_writable(self) -> None:
+        original_text = "__ayvu_cache_write_check__"
+        self.connection.execute("SAVEPOINT ayvu_cache_write_check")
+        try:
+            self.connection.execute(
+                """
+                INSERT INTO translations (
+                    source_lang,
+                    target_lang,
+                    original_text_hash,
+                    original_text,
+                    translated_text
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    "ayvu",
+                    "ayvu",
+                    text_hash(original_text),
+                    original_text,
+                    original_text,
+                ),
+            )
+        except sqlite3.Error:
+            self._rollback_write_check(ignore_errors=True)
+            raise
+
+        self._rollback_write_check(ignore_errors=False)
+
+    def _rollback_write_check(self, ignore_errors: bool) -> None:
+        if ignore_errors:
+            with suppress(sqlite3.Error):
+                self.connection.execute("ROLLBACK TO SAVEPOINT ayvu_cache_write_check")
+            with suppress(sqlite3.Error):
+                self.connection.execute("RELEASE SAVEPOINT ayvu_cache_write_check")
+            return
+
+        self.connection.execute("ROLLBACK TO SAVEPOINT ayvu_cache_write_check")
+        self.connection.execute("RELEASE SAVEPOINT ayvu_cache_write_check")
 
     def close(self) -> None:
         self.connection.close()

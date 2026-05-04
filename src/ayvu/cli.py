@@ -12,8 +12,8 @@ from rich.table import Table
 from .cache import TranslationCache
 from .domain import LanguagePair, OutputPlan, TranslationOptions
 from .epub_io import TranslationReport, extract_markdown, inspect_epub, translate_epub
-from .glossary import GlossaryError, load_glossary
-from .translator import LibreTranslateTranslator, TranslatorError, create_translator
+from .preflight import PreflightError, run_translation_preflight
+from .translator import LibreTranslateTranslator, TranslatorError
 from .validation import validate_output_epub
 
 
@@ -162,17 +162,20 @@ def translate(
             raise typer.Exit(code=1)
 
     try:
-        glossary = load_glossary(glossary_path)
-    except GlossaryError as exc:
-        console.print(f"[red]Glossary error:[/red] {exc}")
-        console.print("Create the file, pass the correct path, or remove --glossary to run without one.")
-        raise typer.Exit(code=1) from exc
-
-    try:
-        translator = create_translator(translator_name, url=url, timeout=timeout, retries=retries)
-    except TranslatorError as exc:
-        console.print(f"[red]Translator error:[/red] {exc}")
-        console.print("Use --translator libretranslate.")
+        preflight = run_translation_preflight(
+            epub_path=epub_path,
+            cache_path=cache_path,
+            glossary_path=glossary_path,
+            translator_name=translator_name,
+            url=url,
+            timeout=timeout,
+            retries=retries,
+            language_pair=language_pair,
+            dry_run=dry_run,
+        )
+    except PreflightError as exc:
+        console.print(f"[red]Environment check failed:[/red] {exc}")
+        console.print(exc.next_step)
         raise typer.Exit(code=1) from exc
 
     with Progress(
@@ -189,10 +192,10 @@ def translate(
             report = translate_epub(
                 epub_path,
                 output_path,
-                translator=translator,
+                translator=preflight.translator,
                 cache=cache,
                 options=translation_options,
-                glossary=glossary,
+                glossary=preflight.glossary,
                 on_chapter_start=progress_view.chapter_started,
                 on_chapter_done=progress_view.chapter_done,
                 on_text_processed=progress_view.text_processed,

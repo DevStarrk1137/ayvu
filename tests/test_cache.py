@@ -22,3 +22,11 @@ def test_cache_is_language_specific(tmp_path):
         cache.set(_cache_key("Hello", "en", "pt"), "Olá")
 
         assert cache.get(_cache_key("Hello", "en", "es")) is None
+
+
+def test_cache_writable_check_does_not_persist_probe(tmp_path):
+    cache_path = tmp_path / "translations.sqlite"
+    with TranslationCache(cache_path) as cache:
+        cache.verify_writable()
+
+        assert cache.get(_cache_key("__ayvu_cache_write_check__", "ayvu", "ayvu")) is None
