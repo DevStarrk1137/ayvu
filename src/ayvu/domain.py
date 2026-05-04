@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+class LanguagePairError(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class LanguagePair:
     source: str
@@ -12,6 +16,12 @@ class LanguagePair:
     @property
     def target_label(self) -> str:
         return self.target.strip() or "translated"
+
+    def validate_for_translation(self) -> None:
+        if not self.source.strip():
+            raise LanguagePairError("source language is required")
+        if not self.target.strip():
+            raise LanguagePairError("target language is required")
 
 
 @dataclass(frozen=True)

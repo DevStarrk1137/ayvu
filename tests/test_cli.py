@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -6,6 +7,7 @@ from typer.testing import CliRunner
 from ayvu.cli import TextProgressCounters, _offer_markdown_report, _render_markdown_report, _save_markdown_report, app
 from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions
 from ayvu.epub_io import TranslationReport
+from ayvu.preflight import PreflightError
 from ayvu.validation import ValidationResult
 
 
@@ -84,9 +86,33 @@ def test_translate_command_has_clear_error_for_unknown_translator(tmp_path):
     result = runner.invoke(app, ["translate", str(epub_path), "--translator", "unknown", "--dry-run"])
 
     assert result.exit_code == 1
-    assert "Translator error:" in result.output
-    assert "Unsupported translator: unknown" in result.output
+    assert "Environment check failed:" in result.output
+    assert "Translator check failed:" in result.output
+    assert "Unsupported translator:" in result.output
+    assert "unknown" in result.output
     assert "Use --translator libretranslate." in result.output
+    assert "Traceback" not in result.output
+
+
+def test_translate_command_stops_when_preflight_fails(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_bytes(b"fake epub")
+
+    def fail_preflight(**_kwargs: object) -> object:
+        raise PreflightError("Cache check failed: no write permission", "Choose a writable cache path.")
+
+    def fail_translate(*_args: object, **_kwargs: object) -> TranslationReport:
+        raise AssertionError("translation should not start when preflight fails")
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fail_preflight)
+    monkeypatch.setattr("ayvu.cli.translate_epub", fail_translate)
+
+    result = runner.invoke(app, ["translate", str(epub_path)])
+
+    assert result.exit_code == 1
+    assert "Environment check failed:" in result.output
+    assert "Cache check failed: no write permission" in result.output
+    assert "Choose a writable cache path." in result.output
     assert "Traceback" not in result.output
 
 
@@ -123,8 +149,10 @@ def test_translate_command_continues_when_existing_output_is_confirmed(tmp_path)
 
     assert result.exit_code == 1
     assert "Overwrite existing translated EPUB?" in result.output
-    assert "Translator error:" in result.output
-    assert "Unsupported translator: unknown" in result.output
+    assert "Environment check failed:" in result.output
+    assert "Translator check failed:" in result.output
+    assert "Unsupported translator:" in result.output
+    assert "unknown" in result.output
     assert output_path.read_text(encoding="utf-8") == "already here"
     assert "Traceback" not in result.output
 
@@ -204,8 +232,10 @@ def test_translate_command_offers_and_saves_markdown_report(tmp_path, monkeypatc
         detected_language="en",
         target_language="pt",
     )
-    monkeypatch.setattr("ayvu.cli.load_glossary", lambda _path: None)
-    monkeypatch.setattr("ayvu.cli.create_translator", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+    )
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", lambda *_args, **_kwargs: report)
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))

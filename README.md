@@ -96,6 +96,8 @@ uv run ayvu translate livro.epub \
   --cache .cache/traducoes.sqlite
 ```
 
+Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
+
 Sem `--output`, a saída é criada ao lado do arquivo original usando o idioma de destino:
 
 ```text
