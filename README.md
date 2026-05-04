@@ -184,6 +184,13 @@ Trechos já traduzidos serão reaproveitados automaticamente.
 uv run pytest
 ```
 
+## Fluxo do Projeto
+
+O fluxo de trabalho do projeto usa issue por tarefa, branch curta por tarefa,
+pull request para merge na `main`, milestone por versao e tag com GitHub Release
+ao publicar. O passo a passo esta em
+[`docs/release-workflow.md`](docs/release-workflow.md).
+
 ## Estrutura
 
 ```text
