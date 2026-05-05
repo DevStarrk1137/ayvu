@@ -7,6 +7,7 @@ from ayvu.cli import _offer_markdown_report, _render_markdown_report, _save_mark
 from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions
 from ayvu.epub_io import TranslationReport
 from ayvu.preflight import PreflightError
+from ayvu.resume import COMPLETED_STATUS, ResumeStateStore
 from ayvu.validation import ValidationResult
 
 
@@ -198,6 +199,7 @@ def test_translate_command_offers_and_saves_markdown_report(tmp_path, monkeypatc
     epub_path = tmp_path / "book.epub"
     output_path = tmp_path / "book-pt.epub"
     reports_dir = tmp_path / "reports"
+    processing_dir = tmp_path / "processing"
     epub_path.write_bytes(b"fake epub")
 
     report = TranslationReport(
@@ -217,10 +219,13 @@ def test_translate_command_offers_and_saves_markdown_report(tmp_path, monkeypatc
     monkeypatch.setattr("ayvu.cli.translate_epub", lambda *_args, **_kwargs: report)
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
     monkeypatch.setattr("ayvu.cli._default_reports_dir", lambda: reports_dir)
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
 
     result = runner.invoke(app, ["translate", str(epub_path), "--output", str(output_path)], input="y\n")
 
     report_path = reports_dir / "book-pt-report.md"
+    state_path = processing_dir / "book-pt.ayvu-state.json"
+    resume_state = ResumeStateStore(processing_dir).load(state_path)
     assert result.exit_code == 0
     assert "Translation report" in result.output
     assert "Original EPUB" in result.output
@@ -230,6 +235,14 @@ def test_translate_command_offers_and_saves_markdown_report(tmp_path, monkeypatc
     assert report_path.exists()
     assert "- Original EPUB: " in report_path.read_text(encoding="utf-8")
     assert str(epub_path) in report_path.read_text(encoding="utf-8")
+    assert resume_state.status == COMPLETED_STATUS
+    assert resume_state.input_path == epub_path.resolve()
+    assert resume_state.output_path == output_path.resolve()
+    assert resume_state.cache_path == Path(".cache/traducoes.sqlite").resolve()
+    assert resume_state.source == "en"
+    assert resume_state.target == "pt"
+    assert resume_state.translator_name == "libretranslate"
+    assert not resume_state.overwrite
 
 
 class FakeCache:
