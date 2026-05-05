@@ -12,10 +12,27 @@ from .domain import TranslationOptions
 RESUME_STATE_VERSION = 1
 RUNNING_STATUS = "running"
 COMPLETED_STATUS = "completed"
+STATE_FILE_PATTERN = "*.ayvu-state.json"
 
 
 class ResumeStateError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class InvalidResumeState:
+    path: Path
+    message: str
+
+
+@dataclass(frozen=True)
+class ResumeStateScan:
+    running: tuple[TranslationResumeState, ...]
+    invalid: tuple[InvalidResumeState, ...]
+
+    @property
+    def has_findings(self) -> bool:
+        return bool(self.running or self.invalid)
 
 
 @dataclass(frozen=True)
@@ -144,6 +161,24 @@ class ResumeStateStore:
             return TranslationResumeState.from_dict(data)
         except ResumeStateError as exc:
             raise ResumeStateError(f"Invalid resume state file {path}: {exc}") from exc
+
+    def scan(self) -> ResumeStateScan:
+        if not self.processing_dir.exists():
+            return ResumeStateScan(running=(), invalid=())
+
+        running: list[TranslationResumeState] = []
+        invalid: list[InvalidResumeState] = []
+        for path in sorted(self.processing_dir.glob(STATE_FILE_PATTERN)):
+            try:
+                state = self.load(path)
+            except ResumeStateError as exc:
+                invalid.append(InvalidResumeState(path=path, message=str(exc)))
+                continue
+
+            if state.status == RUNNING_STATUS:
+                running.append(state)
+
+        return ResumeStateScan(running=tuple(running), invalid=tuple(invalid))
 
 
 def default_processing_dir() -> Path:

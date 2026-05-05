@@ -14,10 +14,10 @@ from ayvu.resume import (
 )
 
 
-def make_state(tmp_path: Path) -> TranslationResumeState:
+def make_state(tmp_path: Path, stem: str = "book") -> TranslationResumeState:
     return TranslationResumeState.create(
-        input_path=tmp_path / "Original" / "book.epub",
-        output_path=tmp_path / "Traduzidos" / "book-pt.epub",
+        input_path=tmp_path / "Original" / f"{stem}.epub",
+        output_path=tmp_path / "Traduzidos" / f"{stem}-pt.epub",
         cache_path=tmp_path / "cache.sqlite",
         translator_name="libretranslate",
         url="http://localhost:5000",
@@ -88,3 +88,29 @@ def test_resume_state_load_reports_missing_required_field(tmp_path):
 
     assert "Invalid resume state file" in str(error.value)
     assert "cache_path is required" in str(error.value)
+
+
+def test_resume_state_scan_finds_running_and_invalid_states(tmp_path):
+    store = ResumeStateStore(tmp_path / "Processando")
+    running = make_state(tmp_path, "running-book")
+    completed = make_state(tmp_path, "completed-book").mark_completed()
+    store.save(running)
+    store.save(completed)
+    bad_path = store.processing_dir / "bad.ayvu-state.json"
+    bad_path.write_text("{bad", encoding="utf-8")
+
+    scan = store.scan()
+
+    assert scan.running == (running,)
+    assert len(scan.invalid) == 1
+    assert scan.invalid[0].path == bad_path
+    assert "not valid JSON" in scan.invalid[0].message
+    assert scan.has_findings
+
+
+def test_resume_state_scan_ignores_missing_processing_dir(tmp_path):
+    scan = ResumeStateStore(tmp_path / "missing").scan()
+
+    assert scan.running == ()
+    assert scan.invalid == ()
+    assert not scan.has_findings

@@ -7,7 +7,7 @@ from ayvu.cli import _offer_markdown_report, _render_markdown_report, _save_mark
 from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions
 from ayvu.epub_io import TranslationReport
 from ayvu.preflight import PreflightError
-from ayvu.resume import COMPLETED_STATUS, ResumeStateStore
+from ayvu.resume import COMPLETED_STATUS, ResumeStateStore, TranslationResumeState
 from ayvu.validation import ValidationResult
 
 
@@ -70,6 +70,61 @@ def test_translate_command_has_clear_error_for_unknown_translator(tmp_path):
     assert "unknown" in result.output
     assert "Use --translator libretranslate." in result.output
     assert "Traceback" not in result.output
+
+
+def test_root_command_shows_processing_translation_state(tmp_path, monkeypatch):
+    processing_dir = tmp_path / "Processando"
+    state = TranslationResumeState.create(
+        input_path=tmp_path / "Original" / "book.epub",
+        output_path=tmp_path / "Traduzidos" / "book-pt.epub",
+        cache_path=tmp_path / "cache.sqlite",
+        translator_name="libretranslate",
+        url="http://localhost:5000",
+        glossary_path=None,
+        options=TranslationOptions(language_pair=LanguagePair(source="en", target="pt")),
+        overwrite=False,
+        timeout=30.0,
+        retries=2,
+    )
+    ResumeStateStore(processing_dir).save(state)
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "Translations in progress were found." in result.output
+    assert "Processing translations" in result.output
+    assert "book.epub" in result.output
+    assert "book-pt.epub" in result.output
+    assert "cache.sqlite" in result.output
+    assert "Usage:" in result.output
+
+
+def test_root_command_reports_invalid_processing_state(tmp_path, monkeypatch):
+    processing_dir = tmp_path / "Processando"
+    processing_dir.mkdir()
+    (processing_dir / "bad.ayvu-state.json").write_text("{bad", encoding="utf-8")
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "Invalid processing state files were found." in result.output
+    assert "bad.ayvu-state.json" in result.output
+    assert "not valid JSON" in result.output
+    assert "Restart the translation" in result.output
+    assert "Usage:" in result.output
+
+
+def test_root_command_without_processing_state_has_no_processing_noise(tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "Translations in progress were found." not in result.output
+    assert "Invalid processing state files were found." not in result.output
 
 
 def test_translate_command_stops_when_preflight_fails(tmp_path, monkeypatch):
