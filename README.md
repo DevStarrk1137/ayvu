@@ -178,6 +178,11 @@ uv run ayvu translate livro.epub \
 
 Trechos já traduzidos serão reaproveitados automaticamente.
 
+Durante traduções reais, o Ayvu também grava um estado local da execução em
+`~/Documentos/Livros/Processando`. Esse arquivo registra os caminhos e opções
+necessários para uma retomada futura. Ele não substitui o cache e não é apagado
+automaticamente.
+
 ## Testes
 
 ```bash

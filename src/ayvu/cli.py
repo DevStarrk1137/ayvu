@@ -13,6 +13,12 @@ from .cli_progress import TranslationProgress
 from .domain import LanguagePair, OutputPlan, TranslationOptions
 from .epub_io import TranslationReport, extract_markdown, inspect_epub, translate_epub
 from .preflight import PreflightError, run_translation_preflight
+from .resume import (
+    ResumeStateError,
+    ResumeStateStore,
+    TranslationResumeState,
+    default_processing_dir,
+)
 from .translator import LibreTranslateTranslator, TranslatorError
 from .validation import validate_output_epub
 
@@ -110,6 +116,22 @@ def translate(
         console.print(exc.next_step)
         raise typer.Exit(code=1) from exc
 
+    resume_store: ResumeStateStore | None = None
+    resume_state: TranslationResumeState | None = None
+    if not dry_run:
+        resume_store, resume_state = _save_running_resume_state(
+            epub_path=epub_path,
+            output_path=output_path,
+            cache_path=cache_path,
+            translator_name=translator_name,
+            url=url,
+            glossary_path=glossary_path,
+            options=translation_options,
+            overwrite=overwrite,
+            timeout=timeout,
+            retries=retries,
+        )
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -140,6 +162,8 @@ def translate(
         validation = validate_output_epub(output_path)
         if validation.ok:
             console.print(f"[green]Validation OK:[/green] {validation.document_count} XHTML/HTML documents found.")
+            if resume_store and resume_state:
+                _mark_resume_state_completed(resume_store, resume_state)
         else:
             for warning in validation.warnings:
                 console.print(f"[yellow]Warning:[/yellow] {warning}")
@@ -177,6 +201,50 @@ def _print_report(report: TranslationReport, dry_run: bool) -> None:
 
     for error in report.errors:
         console.print(f"[yellow]Error:[/yellow] {error}")
+
+
+def _save_running_resume_state(
+    epub_path: Path,
+    output_path: Path,
+    cache_path: Path,
+    translator_name: str,
+    url: str,
+    glossary_path: Path | None,
+    options: TranslationOptions,
+    overwrite: bool,
+    timeout: float,
+    retries: int,
+) -> tuple[ResumeStateStore, TranslationResumeState]:
+    store = ResumeStateStore(default_processing_dir())
+    state = TranslationResumeState.create(
+        input_path=epub_path,
+        output_path=output_path,
+        cache_path=cache_path,
+        translator_name=translator_name,
+        url=url,
+        glossary_path=glossary_path,
+        options=options,
+        overwrite=overwrite,
+        timeout=timeout,
+        retries=retries,
+    )
+    _save_resume_state(store, state)
+    return store, state
+
+
+def _mark_resume_state_completed(store: ResumeStateStore, state: TranslationResumeState) -> None:
+    _save_resume_state(store, state.mark_completed())
+
+
+def _save_resume_state(store: ResumeStateStore, state: TranslationResumeState) -> None:
+    try:
+        store.save(state)
+    except (OSError, ResumeStateError) as exc:
+        console.print(f"[red]Resume state check failed:[/red] {exc}")
+        console.print(
+            "Choose a writable processing directory or fix permissions for Documentos/Livros/Processando."
+        )
+        raise typer.Exit(code=1) from exc
 
 
 def _offer_markdown_report(report: TranslationReport, dry_run: bool) -> None:
