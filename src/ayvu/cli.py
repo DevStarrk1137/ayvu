@@ -14,6 +14,7 @@ from .domain import LanguagePair, OutputPlan, TranslationOptions
 from .epub_io import TranslationReport, extract_markdown, inspect_epub, translate_epub
 from .preflight import PreflightError, run_translation_preflight
 from .resume import (
+    InvalidResumeState,
     ResumeStateError,
     ResumeStateStore,
     TranslationResumeState,
@@ -25,6 +26,16 @@ from .validation import validate_output_epub
 
 app = typer.Typer(help="Translate local EPUB files with a local HTTP translator.")
 console = Console()
+
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context) -> None:
+    """Translate local EPUB files with a local HTTP translator."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    _print_processing_translation_states(ResumeStateStore(default_processing_dir()))
+    console.print(ctx.get_help())
 
 
 @app.command()
@@ -201,6 +212,45 @@ def _print_report(report: TranslationReport, dry_run: bool) -> None:
 
     for error in report.errors:
         console.print(f"[yellow]Error:[/yellow] {error}")
+
+
+def _print_processing_translation_states(store: ResumeStateStore) -> None:
+    scan = store.scan()
+    if not scan.has_findings:
+        return
+
+    if scan.running:
+        _print_running_resume_states(scan.running)
+    if scan.invalid:
+        _print_invalid_resume_states(scan.invalid)
+
+
+def _print_running_resume_states(states: tuple[TranslationResumeState, ...]) -> None:
+    console.print("[yellow]Translations in progress were found.[/yellow]")
+    table = Table(title="Processing translations")
+    table.add_column("Original EPUB")
+    table.add_column("Output")
+    table.add_column("Target")
+    table.add_column("Cache")
+    for state in states:
+        table.add_row(
+            state.input_path.name,
+            state.output_path.name,
+            state.target,
+            state.cache_path.name,
+        )
+    console.print(table)
+
+
+def _print_invalid_resume_states(states: tuple[InvalidResumeState, ...]) -> None:
+    console.print("[yellow]Invalid processing state files were found.[/yellow]")
+    table = Table(title="Invalid processing states")
+    table.add_column("State file")
+    table.add_column("Problem")
+    for state in states:
+        table.add_row(state.path.name, _single_line(state.message))
+    console.print(table)
+    console.print("Restart the translation if the state file cannot be fixed.")
 
 
 def _save_running_resume_state(
