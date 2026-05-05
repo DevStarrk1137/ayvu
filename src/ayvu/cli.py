@@ -16,6 +16,7 @@ from .preflight import PreflightError, run_translation_preflight
 from .resume import (
     InvalidResumeState,
     ResumeStateError,
+    ResumeStateScan,
     ResumeStateStore,
     TranslationResumeState,
     default_processing_dir,
@@ -34,7 +35,10 @@ def main(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is not None:
         return
 
-    _print_processing_translation_states(ResumeStateStore(default_processing_dir()))
+    scan = _print_processing_translation_states(ResumeStateStore(default_processing_dir()))
+    if _offer_detected_translation_resume(scan.running):
+        return
+
     console.print(ctx.get_help())
 
 
@@ -95,6 +99,40 @@ def translate(
     chunk_limit: int = typer.Option(3000, "--chunk-limit", help="Maximum characters sent per request."),
 ) -> None:
     """Translate EPUB visible text while preserving EPUB structure."""
+    _run_translation(
+        epub_path=epub_path,
+        output=output,
+        source=source,
+        target=target,
+        translator_name=translator_name,
+        url=url,
+        cache_path=cache_path,
+        glossary_path=glossary_path,
+        dry_run=dry_run,
+        fail_fast=fail_fast,
+        overwrite=overwrite,
+        timeout=timeout,
+        retries=retries,
+        chunk_limit=chunk_limit,
+    )
+
+
+def _run_translation(
+    epub_path: Path,
+    output: Path | None,
+    source: str,
+    target: str,
+    translator_name: str,
+    url: str,
+    cache_path: Path,
+    glossary_path: Path | None,
+    dry_run: bool,
+    fail_fast: bool,
+    overwrite: bool,
+    timeout: float,
+    retries: int,
+    chunk_limit: int,
+) -> None:
     language_pair = LanguagePair(source=source, target=target)
     translation_options = TranslationOptions(
         language_pair=language_pair,
@@ -214,15 +252,58 @@ def _print_report(report: TranslationReport, dry_run: bool) -> None:
         console.print(f"[yellow]Error:[/yellow] {error}")
 
 
-def _print_processing_translation_states(store: ResumeStateStore) -> None:
+def _print_processing_translation_states(store: ResumeStateStore) -> ResumeStateScan:
     scan = store.scan()
     if not scan.has_findings:
-        return
+        return scan
 
     if scan.running:
         _print_running_resume_states(scan.running)
     if scan.invalid:
         _print_invalid_resume_states(scan.invalid)
+    return scan
+
+
+def _offer_detected_translation_resume(states: tuple[TranslationResumeState, ...]) -> bool:
+    if not states:
+        return False
+    if len(states) > 1:
+        console.print("Multiple translations are in progress; automatic selection is not available yet.")
+        return False
+
+    state = states[0]
+    if not typer.confirm("Continue detected translation?", default=False):
+        console.print("Detected translation was not resumed. Processing files were left unchanged.")
+        return False
+
+    console.print(f"[green]Resuming translation:[/green] {state.input_path.name} -> {state.output_path.name}")
+    _resume_translation(state)
+    return True
+
+
+def _resume_translation(state: TranslationResumeState) -> None:
+    try:
+        _run_translation(
+            epub_path=state.input_path,
+            output=state.output_path,
+            source=state.source,
+            target=state.target,
+            translator_name=state.translator_name,
+            url=state.url,
+            cache_path=state.cache_path,
+            glossary_path=state.glossary_path,
+            dry_run=False,
+            fail_fast=state.fail_fast,
+            overwrite=state.overwrite,
+            timeout=state.timeout,
+            retries=state.retries,
+            chunk_limit=state.chunk_limit,
+        )
+    except typer.Exit:
+        console.print(
+            "Could not resume detected translation. Check the message above and restart the translation if needed."
+        )
+        raise
 
 
 def _print_running_resume_states(states: tuple[TranslationResumeState, ...]) -> None:
