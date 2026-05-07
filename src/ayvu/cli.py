@@ -13,12 +13,33 @@ from .cli_progress import TranslationProgress
 from .domain import LanguagePair, OutputPlan, TranslationOptions
 from .epub_io import TranslationReport, extract_markdown, inspect_epub, translate_epub
 from .preflight import PreflightError, run_translation_preflight
+from .resume import (
+    InvalidResumeState,
+    ResumeStateError,
+    ResumeStateScan,
+    ResumeStateStore,
+    TranslationResumeState,
+    default_processing_dir,
+)
 from .translator import LibreTranslateTranslator, TranslatorError
 from .validation import validate_output_epub
 
 
 app = typer.Typer(help="Translate local EPUB files with a local HTTP translator.")
 console = Console()
+
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context) -> None:
+    """Translate local EPUB files with a local HTTP translator."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    scan = _print_processing_translation_states(ResumeStateStore(default_processing_dir()))
+    if _offer_detected_translation_resume(scan.running):
+        return
+
+    console.print(ctx.get_help())
 
 
 @app.command()
@@ -78,6 +99,40 @@ def translate(
     chunk_limit: int = typer.Option(3000, "--chunk-limit", help="Maximum characters sent per request."),
 ) -> None:
     """Translate EPUB visible text while preserving EPUB structure."""
+    _run_translation(
+        epub_path=epub_path,
+        output=output,
+        source=source,
+        target=target,
+        translator_name=translator_name,
+        url=url,
+        cache_path=cache_path,
+        glossary_path=glossary_path,
+        dry_run=dry_run,
+        fail_fast=fail_fast,
+        overwrite=overwrite,
+        timeout=timeout,
+        retries=retries,
+        chunk_limit=chunk_limit,
+    )
+
+
+def _run_translation(
+    epub_path: Path,
+    output: Path | None,
+    source: str,
+    target: str,
+    translator_name: str,
+    url: str,
+    cache_path: Path,
+    glossary_path: Path | None,
+    dry_run: bool,
+    fail_fast: bool,
+    overwrite: bool,
+    timeout: float,
+    retries: int,
+    chunk_limit: int,
+) -> None:
     language_pair = LanguagePair(source=source, target=target)
     translation_options = TranslationOptions(
         language_pair=language_pair,
@@ -110,6 +165,22 @@ def translate(
         console.print(exc.next_step)
         raise typer.Exit(code=1) from exc
 
+    resume_store: ResumeStateStore | None = None
+    resume_state: TranslationResumeState | None = None
+    if not dry_run:
+        resume_store, resume_state = _save_running_resume_state(
+            epub_path=epub_path,
+            output_path=output_path,
+            cache_path=cache_path,
+            translator_name=translator_name,
+            url=url,
+            glossary_path=glossary_path,
+            options=translation_options,
+            overwrite=overwrite,
+            timeout=timeout,
+            retries=retries,
+        )
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -140,6 +211,8 @@ def translate(
         validation = validate_output_epub(output_path)
         if validation.ok:
             console.print(f"[green]Validation OK:[/green] {validation.document_count} XHTML/HTML documents found.")
+            if resume_store and resume_state:
+                _mark_resume_state_completed(resume_store, resume_state)
         else:
             for warning in validation.warnings:
                 console.print(f"[yellow]Warning:[/yellow] {warning}")
@@ -177,6 +250,132 @@ def _print_report(report: TranslationReport, dry_run: bool) -> None:
 
     for error in report.errors:
         console.print(f"[yellow]Error:[/yellow] {error}")
+
+
+def _print_processing_translation_states(store: ResumeStateStore) -> ResumeStateScan:
+    scan = store.scan()
+    if not scan.has_findings:
+        return scan
+
+    if scan.running:
+        _print_running_resume_states(scan.running)
+    if scan.invalid:
+        _print_invalid_resume_states(scan.invalid)
+    return scan
+
+
+def _offer_detected_translation_resume(states: tuple[TranslationResumeState, ...]) -> bool:
+    if not states:
+        return False
+    if len(states) > 1:
+        console.print("Multiple translations are in progress; automatic selection is not available yet.")
+        return False
+
+    state = states[0]
+    if not typer.confirm("Continue detected translation?", default=False):
+        console.print("Detected translation was not resumed. Processing files were left unchanged.")
+        return False
+
+    console.print(f"[green]Resuming translation:[/green] {state.input_path.name} -> {state.output_path.name}")
+    _resume_translation(state)
+    return True
+
+
+def _resume_translation(state: TranslationResumeState) -> None:
+    try:
+        _run_translation(
+            epub_path=state.input_path,
+            output=state.output_path,
+            source=state.source,
+            target=state.target,
+            translator_name=state.translator_name,
+            url=state.url,
+            cache_path=state.cache_path,
+            glossary_path=state.glossary_path,
+            dry_run=False,
+            fail_fast=state.fail_fast,
+            overwrite=state.overwrite,
+            timeout=state.timeout,
+            retries=state.retries,
+            chunk_limit=state.chunk_limit,
+        )
+    except typer.Exit:
+        console.print(
+            "Could not resume detected translation. Check the message above and restart the translation if needed."
+        )
+        raise
+
+
+def _print_running_resume_states(states: tuple[TranslationResumeState, ...]) -> None:
+    console.print("[yellow]Translations in progress were found.[/yellow]")
+    table = Table(title="Processing translations")
+    table.add_column("Original EPUB")
+    table.add_column("Output")
+    table.add_column("Target")
+    table.add_column("Cache")
+    for state in states:
+        table.add_row(
+            state.input_path.name,
+            state.output_path.name,
+            state.target,
+            state.cache_path.name,
+        )
+    console.print(table)
+
+
+def _print_invalid_resume_states(states: tuple[InvalidResumeState, ...]) -> None:
+    console.print("[yellow]Invalid processing state files were found.[/yellow]")
+    table = Table(title="Invalid processing states")
+    table.add_column("State file")
+    table.add_column("Problem")
+    for state in states:
+        table.add_row(state.path.name, _single_line(state.message))
+    console.print(table)
+    console.print("Restart the translation if the state file cannot be fixed.")
+
+
+def _save_running_resume_state(
+    epub_path: Path,
+    output_path: Path,
+    cache_path: Path,
+    translator_name: str,
+    url: str,
+    glossary_path: Path | None,
+    options: TranslationOptions,
+    overwrite: bool,
+    timeout: float,
+    retries: int,
+) -> tuple[ResumeStateStore, TranslationResumeState]:
+    store = ResumeStateStore(default_processing_dir())
+    state = TranslationResumeState.create(
+        input_path=epub_path,
+        output_path=output_path,
+        cache_path=cache_path,
+        translator_name=translator_name,
+        url=url,
+        glossary_path=glossary_path,
+        options=options,
+        overwrite=overwrite,
+        timeout=timeout,
+        retries=retries,
+    )
+    _save_resume_state(store, state)
+    return store, state
+
+
+def _mark_resume_state_completed(store: ResumeStateStore, state: TranslationResumeState) -> None:
+    _save_resume_state(store, state.mark_completed())
+
+
+def _save_resume_state(store: ResumeStateStore, state: TranslationResumeState) -> None:
+    try:
+        store.save(state)
+    except (OSError, ResumeStateError) as exc:
+        console.print(f"[red]Resume state check failed:[/red] {exc}")
+        console.print(
+            "Choose a writable processing directory or fix permissions for Documentos/Livros/Processando."
+        )
+        raise typer.Exit(code=1) from exc
 
 
 def _offer_markdown_report(report: TranslationReport, dry_run: bool) -> None:
