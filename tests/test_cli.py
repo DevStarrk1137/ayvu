@@ -7,6 +7,7 @@ from ayvu.cli import _offer_markdown_report, _render_markdown_report, _save_mark
 from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions
 from ayvu.epub_io import TranslationReport
 from ayvu.preflight import PreflightError
+from ayvu.resume import COMPLETED_STATUS, ResumeStateStore, TranslationResumeState
 from ayvu.validation import ValidationResult
 
 
@@ -69,6 +70,125 @@ def test_translate_command_has_clear_error_for_unknown_translator(tmp_path):
     assert "unknown" in result.output
     assert "Use --translator libretranslate." in result.output
     assert "Traceback" not in result.output
+
+
+def test_root_command_shows_processing_translation_state(tmp_path, monkeypatch):
+    processing_dir = tmp_path / "Processando"
+    state = _resume_state(tmp_path)
+    ResumeStateStore(processing_dir).save(state)
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+
+    result = runner.invoke(app, [], input="n\n")
+
+    assert result.exit_code == 0
+    assert "Translations in progress were found." in result.output
+    assert "Processing translations" in result.output
+    assert "book.epub" in result.output
+    assert "book-pt.epub" in result.output
+    assert "cache.sqlite" in result.output
+    assert "Continue detected translation?" in result.output
+    assert "Detected translation was not resumed." in result.output
+    assert "Usage:" in result.output
+
+
+def test_root_command_resumes_detected_translation_when_confirmed(tmp_path, monkeypatch):
+    processing_dir = tmp_path / "Processando"
+    state = _resume_state(tmp_path)
+    report = TranslationReport(
+        chapters_processed=1,
+        texts_translated=2,
+        output_path=state.output_path,
+        input_path=state.input_path,
+        detected_language=state.source,
+        target_language=state.target,
+    )
+    calls: dict[str, object] = {}
+    ResumeStateStore(processing_dir).save(state)
+
+    def fake_preflight(**kwargs: object) -> object:
+        calls["preflight"] = kwargs
+        return SimpleNamespace(translator=object(), glossary=None)
+
+    def fake_translate(*_args: object, **kwargs: object) -> TranslationReport:
+        calls["translation_options"] = kwargs["options"]
+        return report
+
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fake_preflight)
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
+    monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
+
+    result = runner.invoke(app, [], input="y\n")
+
+    preflight = calls["preflight"]
+    options = calls["translation_options"]
+    saved_state = ResumeStateStore(processing_dir).load(processing_dir / "book-pt.ayvu-state.json")
+    assert result.exit_code == 0
+    assert "Continue detected translation?" in result.output
+    assert "Resuming translation:" in result.output
+    assert "Translation report" in result.output
+    assert "Usage:" not in result.output
+    assert preflight["epub_path"] == state.input_path
+    assert preflight["cache_path"] == state.cache_path
+    assert preflight["glossary_path"] == state.glossary_path
+    assert preflight["translator_name"] == state.translator_name
+    assert preflight["url"] == state.url
+    assert preflight["timeout"] == state.timeout
+    assert preflight["retries"] == state.retries
+    assert options.source == state.source
+    assert options.target == state.target
+    assert options.chunk_limit == state.chunk_limit
+    assert saved_state.status == COMPLETED_STATUS
+
+
+def test_root_command_reports_resume_failure_without_traceback(tmp_path, monkeypatch):
+    processing_dir = tmp_path / "Processando"
+    ResumeStateStore(processing_dir).save(_resume_state(tmp_path))
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            PreflightError("EPUB check failed: missing file", "Choose a valid EPUB.")
+        ),
+    )
+
+    result = runner.invoke(app, [], input="y\n")
+
+    assert result.exit_code == 1
+    assert "Continue detected translation?" in result.output
+    assert "Environment check failed:" in result.output
+    assert "EPUB check failed: missing file" in result.output
+    assert "Could not resume detected translation." in result.output
+    assert "Traceback" not in result.output
+
+
+def test_root_command_reports_invalid_processing_state(tmp_path, monkeypatch):
+    processing_dir = tmp_path / "Processando"
+    processing_dir.mkdir()
+    (processing_dir / "bad.ayvu-state.json").write_text("{bad", encoding="utf-8")
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "Invalid processing state files were found." in result.output
+    assert "bad.ayvu-state.json" in result.output
+    assert "not valid JSON" in result.output
+    assert "Restart the translation" in result.output
+    assert "Usage:" in result.output
+
+
+def test_root_command_without_processing_state_has_no_processing_noise(tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "Translations in progress were found." not in result.output
+    assert "Invalid processing state files were found." not in result.output
 
 
 def test_translate_command_stops_when_preflight_fails(tmp_path, monkeypatch):
@@ -198,6 +318,7 @@ def test_translate_command_offers_and_saves_markdown_report(tmp_path, monkeypatc
     epub_path = tmp_path / "book.epub"
     output_path = tmp_path / "book-pt.epub"
     reports_dir = tmp_path / "reports"
+    processing_dir = tmp_path / "processing"
     epub_path.write_bytes(b"fake epub")
 
     report = TranslationReport(
@@ -217,10 +338,13 @@ def test_translate_command_offers_and_saves_markdown_report(tmp_path, monkeypatc
     monkeypatch.setattr("ayvu.cli.translate_epub", lambda *_args, **_kwargs: report)
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
     monkeypatch.setattr("ayvu.cli._default_reports_dir", lambda: reports_dir)
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
 
     result = runner.invoke(app, ["translate", str(epub_path), "--output", str(output_path)], input="y\n")
 
     report_path = reports_dir / "book-pt-report.md"
+    state_path = processing_dir / "book-pt.ayvu-state.json"
+    resume_state = ResumeStateStore(processing_dir).load(state_path)
     assert result.exit_code == 0
     assert "Translation report" in result.output
     assert "Original EPUB" in result.output
@@ -230,6 +354,14 @@ def test_translate_command_offers_and_saves_markdown_report(tmp_path, monkeypatc
     assert report_path.exists()
     assert "- Original EPUB: " in report_path.read_text(encoding="utf-8")
     assert str(epub_path) in report_path.read_text(encoding="utf-8")
+    assert resume_state.status == COMPLETED_STATUS
+    assert resume_state.input_path == epub_path.resolve()
+    assert resume_state.output_path == output_path.resolve()
+    assert resume_state.cache_path == Path(".cache/traducoes.sqlite").resolve()
+    assert resume_state.source == "en"
+    assert resume_state.target == "pt"
+    assert resume_state.translator_name == "libretranslate"
+    assert not resume_state.overwrite
 
 
 def test_translate_command_handles_keyboard_interrupt_cleanly(tmp_path, monkeypatch):
@@ -290,3 +422,21 @@ class FakeCache:
 
     def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
         return None
+
+
+def _resume_state(tmp_path: Path) -> TranslationResumeState:
+    return TranslationResumeState.create(
+        input_path=tmp_path / "Original" / "book.epub",
+        output_path=tmp_path / "Traduzidos" / "book-pt.epub",
+        cache_path=tmp_path / "cache.sqlite",
+        translator_name="libretranslate",
+        url="http://localhost:5000",
+        glossary_path=None,
+        options=TranslationOptions(
+            language_pair=LanguagePair(source="en", target="pt"),
+            chunk_limit=1500,
+        ),
+        overwrite=False,
+        timeout=30.0,
+        retries=2,
+    )
