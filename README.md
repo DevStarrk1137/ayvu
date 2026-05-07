@@ -96,6 +96,22 @@ uv run ayvu translate livro.epub \
   --cache .cache/traducoes.sqlite
 ```
 
+Gerar um preview traduzido:
+
+```bash
+uv run ayvu --preview livro.epub
+```
+
+O preview traduz os primeiros documentos internos do EPUB, preserva o restante da estrutura e
+salva por padrão em:
+
+```text
+~/Documentos/Livros/Preview/livro-preview.epub
+```
+
+Ao executar apenas `uv run ayvu`, o Ayvu também oferece a opção de gerar preview antes de
+mostrar a ajuda dos comandos técnicos.
+
 Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
 
 Sem `--output`, o Ayvu mostra a pasta padrão de saída, o nome calculado para o EPUB traduzido

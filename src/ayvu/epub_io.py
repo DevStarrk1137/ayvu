@@ -135,7 +135,7 @@ def translate_epub(
     opf_base_path = _get_opf_base_path(source_path)
     replacements = EpubReplacements()
 
-    documents = _document_entries(book, opf_base_path)
+    documents = _limited_documents(_document_entries(book, opf_base_path), options.max_documents)
     total_documents = len(documents)
 
     with ZipFile(source_path, "r") as source_epub:
@@ -233,6 +233,12 @@ def _document_entries(book: epub.EpubBook, opf_base_path: PurePosixPath) -> list
         name = item.get_name()
         documents.append(EpubDocument(name=name, archive_path=_document_zip_path(opf_base_path, name)))
     return documents
+
+
+def _limited_documents(documents: list[EpubDocument], max_documents: int | None) -> list[EpubDocument]:
+    if max_documents is None:
+        return documents
+    return documents[:max(0, max_documents)]
 
 
 def _copy_epub_with_replacements(

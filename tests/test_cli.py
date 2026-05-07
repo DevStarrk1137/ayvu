@@ -3,7 +3,13 @@ from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
-from ayvu.cli import _offer_markdown_report, _render_markdown_report, _save_markdown_report, app
+from ayvu.cli import (
+    DEFAULT_PREVIEW_DOCUMENT_LIMIT,
+    _offer_markdown_report,
+    _render_markdown_report,
+    _save_markdown_report,
+    app,
+)
 from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions
 from ayvu.epub_io import TranslationReport
 from ayvu.preflight import PreflightError
@@ -62,6 +68,15 @@ def test_output_plan_dry_run_does_not_block_existing_output(tmp_path):
     assert not plan.blocks_existing_file(overwrite=False)
 
 
+def test_output_plan_uses_preview_suffix_in_default_preview_dir():
+    default_dir = Path("Documentos/Livros/Preview")
+
+    plan = OutputPlan.for_preview(Path("books/livro.epub"), default_dir=default_dir)
+
+    assert plan.path == Path("Documentos/Livros/Preview/livro-preview.epub")
+    assert not plan.explicit_output
+
+
 def test_translation_options_exposes_language_pair_values():
     language_pair = LanguagePair(source="en", target="pt")
 
@@ -92,7 +107,7 @@ def test_root_command_shows_processing_translation_state(tmp_path, monkeypatch):
     ResumeStateStore(processing_dir).save(state)
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
 
-    result = runner.invoke(app, [], input="n\n")
+    result = runner.invoke(app, [], input="n\nn\n")
 
     assert result.exit_code == 0
     assert "Translations in progress were found." in result.output
@@ -102,6 +117,7 @@ def test_root_command_shows_processing_translation_state(tmp_path, monkeypatch):
     assert "cache.sqlite" in result.output
     assert "Continue detected translation?" in result.output
     assert "Detected translation was not resumed." in result.output
+    assert "Generate a translation preview?" in result.output
     assert "Usage:" in result.output
 
 
@@ -184,25 +200,106 @@ def test_root_command_reports_invalid_processing_state(tmp_path, monkeypatch):
     (processing_dir / "bad.ayvu-state.json").write_text("{bad", encoding="utf-8")
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
 
-    result = runner.invoke(app, [])
+    result = runner.invoke(app, [], input="n\n")
 
     assert result.exit_code == 0
     assert "Invalid processing state files were found." in result.output
     assert "bad.ayvu-state.json" in result.output
     assert "not valid JSON" in result.output
     assert "Restart the translation" in result.output
+    assert "Generate a translation preview?" in result.output
     assert "Usage:" in result.output
 
 
 def test_root_command_without_processing_state_has_no_processing_noise(tmp_path, monkeypatch):
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
 
-    result = runner.invoke(app, [])
+    result = runner.invoke(app, [], input="n\n")
 
     assert result.exit_code == 0
+    assert "Generate a translation preview?" in result.output
     assert "Usage:" in result.output
     assert "Translations in progress were found." not in result.output
     assert "Invalid processing state files were found." not in result.output
+
+
+def test_root_command_generates_guided_preview_when_confirmed(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    preview_dir = tmp_path / "Preview"
+    epub_path.write_bytes(b"fake epub")
+    calls: dict[str, object] = {}
+
+    def fake_translate(input_path: Path, output_path: Path, **kwargs: object) -> TranslationReport:
+        calls["input_path"] = input_path
+        calls["output_path"] = output_path
+        calls["options"] = kwargs["options"]
+        return TranslationReport(output_path=output_path, input_path=input_path, target_language="pt")
+
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+    monkeypatch.setattr("ayvu.cli.default_preview_books_dir", lambda: preview_dir)
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+    )
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
+
+    result = runner.invoke(app, [], input=f"y\n{epub_path}\n")
+
+    options = calls["options"]
+    assert result.exit_code == 0
+    assert "Generate a translation preview?" in result.output
+    assert "EPUB path" in result.output
+    assert "Preview output folder:" in result.output
+    assert "Preview EPUB name:" in result.output
+    assert "Preview saved to:" in result.output
+    assert calls["input_path"] == epub_path
+    assert calls["output_path"] == preview_dir / "book-preview.epub"
+    assert options.max_documents == DEFAULT_PREVIEW_DOCUMENT_LIMIT
+    assert "Usage:" not in result.output
+
+
+def test_preview_option_generates_preview_with_default_settings(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    preview_dir = tmp_path / "Preview"
+    epub_path.write_bytes(b"fake epub")
+    calls: dict[str, object] = {}
+
+    def fake_preflight(**kwargs: object) -> object:
+        calls["preflight"] = kwargs
+        return SimpleNamespace(translator=object(), glossary=None)
+
+    def fake_translate(input_path: Path, output_path: Path, **kwargs: object) -> TranslationReport:
+        calls["input_path"] = input_path
+        calls["output_path"] = output_path
+        calls["options"] = kwargs["options"]
+        return TranslationReport(output_path=output_path, input_path=input_path, target_language="pt")
+
+    monkeypatch.setattr("ayvu.cli.default_preview_books_dir", lambda: preview_dir)
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fake_preflight)
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
+
+    result = runner.invoke(app, ["--preview", str(epub_path)])
+
+    preflight = calls["preflight"]
+    options = calls["options"]
+    assert result.exit_code == 0
+    assert "Preview output folder:" in result.output
+    assert str(preview_dir) in result.output
+    assert "book-preview.epub" in result.output
+    assert "Preview saved to:" in result.output
+    assert calls["input_path"] == epub_path
+    assert calls["output_path"] == preview_dir / "book-preview.epub"
+    assert preflight["epub_path"] == epub_path
+    assert preflight["cache_path"] == Path(".cache/traducoes.sqlite")
+    assert preflight["translator_name"] == "libretranslate"
+    assert preflight["url"] == "http://localhost:5000"
+    assert options.source == "en"
+    assert options.target == "pt"
+    assert options.max_documents == DEFAULT_PREVIEW_DOCUMENT_LIMIT
 
 
 def test_translate_command_stops_when_preflight_fails(tmp_path, monkeypatch):

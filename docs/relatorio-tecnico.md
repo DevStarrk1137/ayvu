@@ -83,6 +83,15 @@ Testar o LibreTranslate local:
 ayvu test-translator --url http://localhost:5000
 ```
 
+Gerar preview traduzido:
+
+```bash
+ayvu --preview game.epub
+```
+
+O preview traduz uma amostra inicial de documentos internos do EPUB e salva o
+resultado em `~/Documentos/Livros/Preview/<nome>-preview.epub`.
+
 Traduzir:
 
 ```bash
