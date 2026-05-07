@@ -5,6 +5,18 @@ from dataclasses import dataclass
 from rich.progress import Progress
 
 
+@dataclass(frozen=True)
+class TranslationProgressSnapshot:
+    chapters_processed: int
+    total_chapters: int | None
+    current_chapter: str | None
+    texts_processed: int
+    texts_translated: int
+    texts_from_cache: int
+    texts_dry_run: int
+    text_errors: int
+
+
 @dataclass
 class TextProgressCounters:
     translated: int = 0
@@ -42,10 +54,15 @@ class TranslationProgress:
         self._progress = progress
         self._dry_run = dry_run
         self._counters = TextProgressCounters()
+        self._chapters_processed = 0
+        self._total_chapters: int | None = None
+        self._current_chapter: str | None = None
         self._chapter_task = progress.add_task("Chapters", total=None)
         self._text_task = progress.add_task("Texts", total=None)
 
     def chapter_started(self, index: int, total: int, name: str) -> None:
+        self._total_chapters = total
+        self._current_chapter = name
         self._progress.update(
             self._chapter_task,
             total=total,
@@ -53,6 +70,9 @@ class TranslationProgress:
         )
 
     def chapter_done(self, index: int, total: int, name: str, _stats: object) -> None:
+        self._chapters_processed += 1
+        self._total_chapters = total
+        self._current_chapter = name
         self._progress.advance(self._chapter_task)
         self._progress.update(self._chapter_task, description=self._chapter_description(index, total, name))
 
@@ -60,6 +80,18 @@ class TranslationProgress:
         self._counters.record(status)
         self._progress.advance(self._text_task)
         self._progress.update(self._text_task, description=self._text_description())
+
+    def snapshot(self) -> TranslationProgressSnapshot:
+        return TranslationProgressSnapshot(
+            chapters_processed=self._chapters_processed,
+            total_chapters=self._total_chapters,
+            current_chapter=self._current_chapter,
+            texts_processed=self._counters.processed,
+            texts_translated=self._counters.translated,
+            texts_from_cache=self._counters.cache,
+            texts_dry_run=self._counters.dry_run,
+            text_errors=self._counters.error,
+        )
 
     def _chapter_description(self, index: int, total: int, name: str) -> str:
         return f"Chapters {index}/{total}: {_shorten(name)}"
