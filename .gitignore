@@ -31,6 +31,8 @@ livro-extraido/
 glossary.json
 AGENTS.md
 AGENTS-Geral.md
+GEMINI.md
+.github/pull_request_template.md
 
 # Personal Ayvu workspace
 .ayvu-pessoal/
