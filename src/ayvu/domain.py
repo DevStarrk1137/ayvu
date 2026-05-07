@@ -28,6 +28,7 @@ class LanguagePair:
 class OutputPlan:
     path: Path
     dry_run: bool = False
+    explicit_output: bool = False
 
     @classmethod
     def for_translation(
@@ -36,12 +37,17 @@ class OutputPlan:
         explicit_output: Path | None,
         language_pair: LanguagePair,
         dry_run: bool = False,
+        default_dir: Path | None = None,
     ) -> "OutputPlan":
         if explicit_output is not None:
-            return cls(path=explicit_output, dry_run=dry_run)
+            return cls(path=explicit_output, dry_run=dry_run, explicit_output=True)
 
-        output_path = input_path.with_name(f"{input_path.stem}-{language_pair.target_label}.epub")
+        output_dir = default_dir or default_translated_books_dir()
+        output_path = output_dir / f"{input_path.stem}-{language_pair.target_label}.epub"
         return cls(path=output_path, dry_run=dry_run)
+
+    def with_path(self, path: Path) -> "OutputPlan":
+        return OutputPlan(path=path, dry_run=self.dry_run, explicit_output=self.explicit_output)
 
     def blocks_existing_file(self, overwrite: bool) -> bool:
         if self.dry_run:
@@ -49,6 +55,10 @@ class OutputPlan:
         if overwrite:
             return False
         return self.path.exists()
+
+
+def default_translated_books_dir() -> Path:
+    return Path.home() / "Documentos" / "Livros" / "Traduzidos"
 
 
 @dataclass(frozen=True)

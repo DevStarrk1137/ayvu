@@ -10,7 +10,7 @@ from rich.table import Table
 
 from .cache import TranslationCache
 from .cli_progress import TranslationProgress, TranslationProgressSnapshot
-from .domain import LanguagePair, OutputPlan, TranslationOptions
+from .domain import LanguagePair, OutputPlan, TranslationOptions, default_translated_books_dir
 from .epub_io import TranslationReport, extract_markdown, inspect_epub, translate_epub
 from .preflight import PreflightError, run_translation_preflight
 from .resume import (
@@ -140,7 +140,14 @@ def _run_translation(
         fail_fast=fail_fast,
         chunk_limit=chunk_limit,
     )
-    output_plan = OutputPlan.for_translation(epub_path, output, language_pair, dry_run=dry_run)
+    output_plan = OutputPlan.for_translation(
+        epub_path,
+        output,
+        language_pair,
+        dry_run=dry_run,
+        default_dir=default_translated_books_dir(),
+    )
+    output_plan = _confirm_default_output_location(output_plan, epub_path)
     output_path = output_plan.path
 
     if output_plan.blocks_existing_file(overwrite):
@@ -508,6 +515,38 @@ def _report_output_value(report: TranslationReport, dry_run: bool) -> str:
     if dry_run:
         return "(dry run, no file written)"
     return _display_optional_path(report.output_path)
+
+
+def _confirm_default_output_location(output_plan: OutputPlan, input_path: Path) -> OutputPlan:
+    if output_plan.explicit_output or output_plan.dry_run:
+        return output_plan
+
+    output_path = output_plan.path
+    console.print(f"[yellow]Default output folder:[/yellow] {output_path.parent}")
+    console.print(f"[yellow]Translated EPUB name:[/yellow] {output_path.name}")
+    console.print(_original_epub_location_message(input_path))
+
+    if typer.confirm("Keep this output location?", default=True):
+        return output_plan
+
+    return output_plan.with_path(_prompt_output_path(output_path))
+
+
+def _original_epub_location_message(input_path: Path) -> str:
+    if input_path.parent.name == "Original":
+        return f"Original EPUB stays in Original: {input_path}"
+    return f"Original EPUB remains unchanged: {input_path}"
+
+
+def _prompt_output_path(default_path: Path) -> Path:
+    raw_path = typer.prompt("Output EPUB path", default=str(default_path))
+    output_path = Path(raw_path).expanduser()
+    if not output_path.name:
+        console.print("[red]Canceled:[/red] output path was not changed.")
+        raise typer.Exit(code=1)
+    if output_path.suffix.lower() != ".epub":
+        return output_path.with_suffix(".epub")
+    return output_path
 
 
 def _single_line(value: str) -> str:

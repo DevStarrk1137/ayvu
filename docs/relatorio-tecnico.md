@@ -96,6 +96,10 @@ ayvu translate game.epub \
   --glossary glossary.json
 ```
 
+Quando `--output` nao e informado em uma traducao real, o Ayvu mostra a pasta
+padrao `~/Documentos/Livros/Traduzidos`, o nome calculado do EPUB traduzido e
+pergunta se o usuario deseja manter esse local antes de iniciar a traducao.
+
 Rodar em modo dry-run:
 
 ```bash
