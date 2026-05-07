@@ -46,6 +46,19 @@ class OutputPlan:
         output_path = output_dir / f"{input_path.stem}-{language_pair.target_label}.epub"
         return cls(path=output_path, dry_run=dry_run)
 
+    @classmethod
+    def for_preview(
+        cls,
+        input_path: Path,
+        explicit_output: Path | None = None,
+        default_dir: Path | None = None,
+    ) -> "OutputPlan":
+        if explicit_output is not None:
+            return cls(path=explicit_output, explicit_output=True)
+
+        output_dir = default_dir or default_preview_books_dir()
+        return cls(path=output_dir / f"{input_path.stem}-preview.epub")
+
     def with_path(self, path: Path) -> "OutputPlan":
         return OutputPlan(path=path, dry_run=self.dry_run, explicit_output=self.explicit_output)
 
@@ -61,12 +74,17 @@ def default_translated_books_dir() -> Path:
     return Path.home() / "Documentos" / "Livros" / "Traduzidos"
 
 
+def default_preview_books_dir() -> Path:
+    return Path.home() / "Documentos" / "Livros" / "Preview"
+
+
 @dataclass(frozen=True)
 class TranslationOptions:
     language_pair: LanguagePair
     dry_run: bool = False
     fail_fast: bool = False
     chunk_limit: int = 3000
+    max_documents: int | None = None
 
     @property
     def source(self) -> str:

@@ -171,3 +171,34 @@ def test_translate_epub_translates_minimal_generated_epub_without_mutating_input
     assert "PT:chapter two" in chapter
     assert "chapter2.xhtml#answer" in chapter
     assert "../images/pixel.png" in chapter
+
+
+def test_translate_epub_limits_documents_for_preview(minimal_epub_path: Path, tmp_path: Path):
+    output_path = tmp_path / "minimal-preview.epub"
+    translator = PrefixTranslator()
+    options = TranslationOptions(
+        language_pair=LanguagePair(source="en", target="pt"),
+        max_documents=1,
+    )
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        report = translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=translator,
+            cache=cache,
+            options=options,
+        )
+
+    assert report.chapters_processed == 1
+
+    with ZipFile(output_path) as output_epub:
+        names = output_epub.namelist()
+        chapter_one_name = next(name for name in names if name.endswith("text/chapter1.xhtml"))
+        chapter_two_name = next(name for name in names if name.endswith("text/chapter2.xhtml"))
+        chapter_one = output_epub.read(chapter_one_name).decode("utf-8")
+        chapter_two = output_epub.read(chapter_two_name).decode("utf-8")
+
+    assert "PT:Hello reader. Visit" in chapter_one
+    assert "PT:Goodbye reader." not in chapter_two
+    assert "Goodbye reader." in chapter_two

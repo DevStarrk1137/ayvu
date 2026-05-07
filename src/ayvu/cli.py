@@ -10,7 +10,13 @@ from rich.table import Table
 
 from .cache import TranslationCache
 from .cli_progress import TranslationProgress, TranslationProgressSnapshot
-from .domain import LanguagePair, OutputPlan, TranslationOptions, default_translated_books_dir
+from .domain import (
+    LanguagePair,
+    OutputPlan,
+    TranslationOptions,
+    default_preview_books_dir,
+    default_translated_books_dir,
+)
 from .epub_io import TranslationReport, extract_markdown, inspect_epub, translate_epub
 from .preflight import PreflightError, run_translation_preflight
 from .resume import (
@@ -27,16 +33,31 @@ from .validation import validate_output_epub
 
 app = typer.Typer(help="Translate local EPUB files with a local HTTP translator.")
 console = Console()
+DEFAULT_PREVIEW_DOCUMENT_LIMIT = 12
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context) -> None:
+def main(
+    ctx: typer.Context,
+    preview: Optional[Path] = typer.Option(
+        None,
+        "--preview",
+        help="Generate a translated EPUB preview with default settings.",
+    ),
+) -> None:
     """Translate local EPUB files with a local HTTP translator."""
     if ctx.invoked_subcommand is not None:
         return
 
+    if preview is not None:
+        _run_preview(preview)
+        return
+
     scan = _print_processing_translation_states(ResumeStateStore(default_processing_dir()))
     if _offer_detected_translation_resume(scan.running):
+        return
+
+    if _offer_guided_preview():
         return
 
     console.print(ctx.get_help())
@@ -236,6 +257,91 @@ def _run_translation(
             raise typer.Exit(code=1)
 
 
+def _run_preview(
+    epub_path: Path,
+    source: str = "en",
+    target: str = "pt",
+    translator_name: str = "libretranslate",
+    url: str = "http://localhost:5000",
+    cache_path: Path = Path(".cache/traducoes.sqlite"),
+    glossary_path: Path | None = None,
+    timeout: float = 30.0,
+    retries: int = 2,
+    chunk_limit: int = 3000,
+    max_documents: int = DEFAULT_PREVIEW_DOCUMENT_LIMIT,
+) -> None:
+    epub_path = epub_path.expanduser()
+    _ensure_preview_input_exists(epub_path)
+
+    language_pair = LanguagePair(source=source, target=target)
+    translation_options = TranslationOptions(
+        language_pair=language_pair,
+        chunk_limit=chunk_limit,
+        max_documents=max_documents,
+    )
+    output_plan = OutputPlan.for_preview(
+        epub_path,
+        default_dir=default_preview_books_dir(),
+    )
+    output_path = output_plan.path
+    _print_preview_output_location(output_path, max_documents)
+
+    if output_plan.blocks_existing_file(overwrite=False):
+        if not _confirm_existing_preview_overwrite(output_path):
+            console.print("[red]Canceled:[/red] existing preview was not changed.")
+            raise typer.Exit(code=1)
+
+    try:
+        preflight = run_translation_preflight(
+            epub_path=epub_path,
+            cache_path=cache_path,
+            glossary_path=glossary_path,
+            translator_name=translator_name,
+            url=url,
+            timeout=timeout,
+            retries=retries,
+            language_pair=language_pair,
+            dry_run=False,
+        )
+    except PreflightError as exc:
+        console.print(f"[red]Environment check failed:[/red] {exc}")
+        console.print(exc.next_step)
+        raise typer.Exit(code=1) from exc
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        progress_view = TranslationProgress(progress, dry_run=False)
+        with TranslationCache(cache_path) as cache:
+            report = translate_epub(
+                epub_path,
+                output_path,
+                translator=preflight.translator,
+                cache=cache,
+                options=translation_options,
+                glossary=preflight.glossary,
+                on_chapter_start=progress_view.chapter_started,
+                on_chapter_done=progress_view.chapter_done,
+                on_text_processed=progress_view.text_processed,
+            )
+
+    _print_report(report, dry_run=False)
+    validation = validate_output_epub(output_path)
+    if validation.ok:
+        console.print(f"[green]Preview saved to:[/green] {output_path}")
+        console.print(f"[green]Validation OK:[/green] {validation.document_count} XHTML/HTML documents found.")
+        return
+
+    for warning in validation.warnings:
+        console.print(f"[yellow]Warning:[/yellow] {warning}")
+    raise typer.Exit(code=1)
+
+
 @app.command()
 def extract(
     epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
@@ -320,6 +426,15 @@ def _print_processing_translation_states(store: ResumeStateStore) -> ResumeState
     if scan.invalid:
         _print_invalid_resume_states(scan.invalid)
     return scan
+
+
+def _offer_guided_preview() -> bool:
+    if not typer.confirm("Generate a translation preview?", default=False):
+        return False
+
+    epub_path = Path(typer.prompt("EPUB path")).expanduser()
+    _run_preview(epub_path)
+    return True
 
 
 def _offer_detected_translation_resume(states: tuple[TranslationResumeState, ...]) -> bool:
@@ -517,6 +632,20 @@ def _report_output_value(report: TranslationReport, dry_run: bool) -> str:
     return _display_optional_path(report.output_path)
 
 
+def _ensure_preview_input_exists(epub_path: Path) -> None:
+    if epub_path.is_file():
+        return
+    console.print(f"[red]Preview EPUB was not found:[/red] {epub_path}")
+    console.print("Choose a valid local EPUB file.")
+    raise typer.Exit(code=1)
+
+
+def _print_preview_output_location(output_path: Path, max_documents: int) -> None:
+    console.print(f"[yellow]Preview output folder:[/yellow] {output_path.parent}")
+    console.print(f"[yellow]Preview EPUB name:[/yellow] {output_path.name}")
+    console.print(f"Preview will translate up to {max_documents} EPUB documents.")
+
+
 def _confirm_default_output_location(output_plan: OutputPlan, input_path: Path) -> OutputPlan:
     if output_plan.explicit_output or output_plan.dry_run:
         return output_plan
@@ -557,6 +686,12 @@ def _confirm_existing_output_overwrite(output_path: Path) -> bool:
     console.print(f"[yellow]Output path:[/yellow] {output_path}")
     console.print("[yellow]Translated EPUB already exists.[/yellow]")
     return typer.confirm("Overwrite existing translated EPUB?", default=False)
+
+
+def _confirm_existing_preview_overwrite(output_path: Path) -> bool:
+    console.print(f"[yellow]Preview output path:[/yellow] {output_path}")
+    console.print("[yellow]Preview EPUB already exists.[/yellow]")
+    return typer.confirm("Overwrite existing preview EPUB?", default=False)
 
 
 if __name__ == "__main__":
