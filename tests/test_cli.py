@@ -10,7 +10,7 @@ from ayvu.cli import (
     _save_markdown_report,
     app,
 )
-from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions
+from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions, UserMode
 from ayvu.epub_io import TranslationReport
 from ayvu.preflight import PreflightError
 from ayvu.resume import COMPLETED_STATUS, ResumeStateStore, TranslationResumeState
@@ -119,6 +119,35 @@ def test_root_command_shows_processing_translation_state(tmp_path, monkeypatch):
     assert "Detected translation was not resumed." in result.output
     assert "Generate a translation preview?" in result.output
     assert "Usage:" in result.output
+
+
+def test_root_command_in_developer_mode_skips_guided_prompts(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_bytes(b"fake")
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(app, ["--mode", "developer", "--preview", str(epub_path)])
+
+    assert "Generate a translation preview?" not in result.output
+    assert "Environment check failed:" in result.output
+
+
+def test_translate_command_in_developer_mode_skips_confirmations(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_bytes(b"fake")
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: (_ for _ in ()).throw(PreflightError("failed", "next")),
+    )
+
+    result = runner.invoke(app, ["translate", str(epub_path)])
+
+    assert result.exit_code == 1
+    assert "Default output folder:" not in result.output
+    assert "Keep this output location?" not in result.output
+    assert "Environment check failed:" in result.output
 
 
 def test_root_command_resumes_detected_translation_when_confirmed(tmp_path, monkeypatch):
@@ -316,7 +345,7 @@ def test_translate_command_stops_when_preflight_fails(tmp_path, monkeypatch):
     monkeypatch.setattr("ayvu.cli.run_translation_preflight", fail_preflight)
     monkeypatch.setattr("ayvu.cli.translate_epub", fail_translate)
 
-    result = runner.invoke(app, ["translate", str(epub_path)], input="y\n")
+    result = runner.invoke(app, ["--mode", "common", "translate", str(epub_path)], input="y\n")
 
     assert result.exit_code == 1
     assert "Default output folder:" in result.output
@@ -357,7 +386,7 @@ def test_translate_command_confirms_default_output_location(tmp_path, monkeypatc
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
     monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
 
-    result = runner.invoke(app, ["translate", str(epub_path)], input="y\n")
+    result = runner.invoke(app, ["--mode", "common", "translate", str(epub_path)], input="y\n")
 
     output_path = output_dir / "book-pt.epub"
     state_path = processing_dir / "book-pt.ayvu-state.json"
@@ -397,7 +426,7 @@ def test_translate_command_allows_custom_output_path_from_default_prompt(tmp_pat
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
     monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
 
-    result = runner.invoke(app, ["translate", str(epub_path)], input=f"n\n{custom_output}\n")
+    result = runner.invoke(app, ["--mode", "common", "translate", str(epub_path)], input=f"n\n{custom_output}\n")
 
     output_path = custom_output.with_suffix(".epub")
     assert result.exit_code == 0
@@ -412,7 +441,7 @@ def test_translate_command_asks_before_overwriting_existing_output_and_cancels(t
     epub_path.write_bytes(b"not a real epub")
     output_path.write_text("already here", encoding="utf-8")
 
-    result = runner.invoke(app, ["translate", str(epub_path), "--output", str(output_path)], input="n\n")
+    result = runner.invoke(app, ["--mode", "common", "translate", str(epub_path), "--output", str(output_path)], input="n\n")
 
     assert result.exit_code == 1
     assert "Output path:" in result.output
@@ -433,7 +462,7 @@ def test_translate_command_continues_when_existing_output_is_confirmed(tmp_path)
 
     result = runner.invoke(
         app,
-        ["translate", str(epub_path), "--output", str(output_path), "--translator", "unknown"],
+        ["--mode", "common", "translate", str(epub_path), "--output", str(output_path), "--translator", "unknown"],
         input="y\n",
     )
 
@@ -502,7 +531,7 @@ def test_offer_markdown_report_does_not_save_when_declined(monkeypatch):
     monkeypatch.setattr("ayvu.cli.typer.confirm", lambda *_args, **_kwargs: False)
     monkeypatch.setattr("ayvu.cli._save_markdown_report", fake_save_report)
 
-    _offer_markdown_report(TranslationReport(), dry_run=False)
+    _offer_markdown_report(TranslationReport(), dry_run=False, mode=UserMode.COMMON)
 
     assert not saved
 
@@ -533,7 +562,7 @@ def test_translate_command_offers_and_saves_markdown_report(tmp_path, monkeypatc
     monkeypatch.setattr("ayvu.cli._default_reports_dir", lambda: reports_dir)
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
 
-    result = runner.invoke(app, ["translate", str(epub_path), "--output", str(output_path)], input="y\n")
+    result = runner.invoke(app, ["--mode", "common", "translate", str(epub_path), "--output", str(output_path)], input="y\n")
 
     report_path = reports_dir / "book-pt-report.md"
     state_path = processing_dir / "book-pt.ayvu-state.json"

@@ -14,6 +14,7 @@ from .domain import (
     LanguagePair,
     OutputPlan,
     TranslationOptions,
+    UserMode,
     default_preview_books_dir,
     default_translated_books_dir,
 )
@@ -39,6 +40,11 @@ DEFAULT_PREVIEW_DOCUMENT_LIMIT = 12
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
+    mode: Optional[UserMode] = typer.Option(
+        None,
+        "--mode",
+        help="Execution mode (common or developer). If not specified, it's inferred from usage.",
+    ),
     preview: Optional[Path] = typer.Option(
         None,
         "--preview",
@@ -46,18 +52,28 @@ def main(
     ),
 ) -> None:
     """Translate local EPUB files with a local HTTP translator."""
+    if mode is None:
+        mode = UserMode.DEVELOPER
+        # COMMON mode is only when running 'ayvu' without subcommands or options (except for help)
+        # Typer sets invoked_subcommand when a subcommand is used.
+        # ctx.params contains options of the callback itself.
+        if ctx.invoked_subcommand is None and not any(v for k, v in ctx.params.items() if k != "mode"):
+            mode = UserMode.COMMON
+    ctx.ensure_object(dict)
+    ctx.obj["mode"] = mode
+
     if ctx.invoked_subcommand is not None:
         return
 
     if preview is not None:
-        _run_preview(preview)
+        _run_preview(preview, mode=mode)
         return
 
     scan = _print_processing_translation_states(ResumeStateStore(default_processing_dir()))
-    if _offer_detected_translation_resume(scan.running):
+    if _offer_detected_translation_resume(scan.running, mode=mode):
         return
 
-    if _offer_guided_preview():
+    if _offer_guided_preview(mode=mode):
         return
 
     console.print(ctx.get_help())
@@ -99,6 +115,7 @@ def test_translator(
 
 @app.command()
 def translate(
+    ctx: typer.Context,
     epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
     output: Optional[Path] = typer.Option(
         None,
@@ -120,6 +137,7 @@ def translate(
     chunk_limit: int = typer.Option(3000, "--chunk-limit", help="Maximum characters sent per request."),
 ) -> None:
     """Translate EPUB visible text while preserving EPUB structure."""
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
     _run_translation(
         epub_path=epub_path,
         output=output,
@@ -135,6 +153,7 @@ def translate(
         timeout=timeout,
         retries=retries,
         chunk_limit=chunk_limit,
+        mode=mode,
     )
 
 
@@ -153,6 +172,7 @@ def _run_translation(
     timeout: float,
     retries: int,
     chunk_limit: int,
+    mode: UserMode,
 ) -> None:
     language_pair = LanguagePair(source=source, target=target)
     translation_options = TranslationOptions(
@@ -168,11 +188,11 @@ def _run_translation(
         dry_run=dry_run,
         default_dir=default_translated_books_dir(),
     )
-    output_plan = _confirm_default_output_location(output_plan, epub_path)
+    output_plan = _confirm_default_output_location(output_plan, epub_path, mode=mode)
     output_path = output_plan.path
 
     if output_plan.blocks_existing_file(overwrite):
-        if not _confirm_existing_output_overwrite(output_path):
+        if not _confirm_existing_output_overwrite(output_path, mode=mode):
             console.print("[red]Canceled:[/red] existing output was not changed.")
             raise typer.Exit(code=1)
 
@@ -243,7 +263,7 @@ def _run_translation(
         raise typer.Exit(code=1) from exc
 
     _print_report(report, dry_run)
-    _offer_markdown_report(report, dry_run)
+    _offer_markdown_report(report, dry_run, mode=mode)
 
     if not dry_run:
         validation = validate_output_epub(output_path)
@@ -269,6 +289,7 @@ def _run_preview(
     retries: int = 2,
     chunk_limit: int = 3000,
     max_documents: int = DEFAULT_PREVIEW_DOCUMENT_LIMIT,
+    mode: UserMode = UserMode.DEVELOPER,
 ) -> None:
     epub_path = epub_path.expanduser()
     _ensure_preview_input_exists(epub_path)
@@ -287,7 +308,7 @@ def _run_preview(
     _print_preview_output_location(output_path, max_documents)
 
     if output_plan.blocks_existing_file(overwrite=False):
-        if not _confirm_existing_preview_overwrite(output_path):
+        if not _confirm_existing_preview_overwrite(output_path, mode=mode):
             console.print("[red]Canceled:[/red] existing preview was not changed.")
             raise typer.Exit(code=1)
 
@@ -428,18 +449,27 @@ def _print_processing_translation_states(store: ResumeStateStore) -> ResumeState
     return scan
 
 
-def _offer_guided_preview() -> bool:
+def _offer_guided_preview(mode: UserMode) -> bool:
+    if mode == UserMode.DEVELOPER:
+        return False
+
     if not typer.confirm("Generate a translation preview?", default=False):
         return False
 
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
-    _run_preview(epub_path)
+    _run_preview(epub_path, mode=mode)
     return True
 
 
-def _offer_detected_translation_resume(states: tuple[TranslationResumeState, ...]) -> bool:
+def _offer_detected_translation_resume(states: tuple[TranslationResumeState, ...], mode: UserMode) -> bool:
     if not states:
         return False
+    # In DEVELOPER mode, we don't resume automatically to avoid unexpected behavior.
+    # The user should probably use a resume-specific command if we had one,
+    # or just let the cache handle it.
+    if mode == UserMode.DEVELOPER:
+        return False
+
     if len(states) > 1:
         console.print("Multiple translations are in progress; automatic selection is not available yet.")
         return False
@@ -450,11 +480,11 @@ def _offer_detected_translation_resume(states: tuple[TranslationResumeState, ...
         return False
 
     console.print(f"[green]Resuming translation:[/green] {state.input_path.name} -> {state.output_path.name}")
-    _resume_translation(state)
+    _resume_translation(state, mode=mode)
     return True
 
 
-def _resume_translation(state: TranslationResumeState) -> None:
+def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
     try:
         _run_translation(
             epub_path=state.input_path,
@@ -471,6 +501,7 @@ def _resume_translation(state: TranslationResumeState) -> None:
             timeout=state.timeout,
             retries=state.retries,
             chunk_limit=state.chunk_limit,
+            mode=mode,
         )
     except typer.Exit:
         console.print(
@@ -551,7 +582,10 @@ def _save_resume_state(store: ResumeStateStore, state: TranslationResumeState) -
         raise typer.Exit(code=1) from exc
 
 
-def _offer_markdown_report(report: TranslationReport, dry_run: bool) -> None:
+def _offer_markdown_report(report: TranslationReport, dry_run: bool, mode: UserMode = UserMode.DEVELOPER) -> None:
+    if mode == UserMode.DEVELOPER:
+        return
+
     if not typer.confirm("Save translation report as Markdown?", default=False):
         return
 
@@ -646,8 +680,8 @@ def _print_preview_output_location(output_path: Path, max_documents: int) -> Non
     console.print(f"Preview will translate up to {max_documents} EPUB documents.")
 
 
-def _confirm_default_output_location(output_plan: OutputPlan, input_path: Path) -> OutputPlan:
-    if output_plan.explicit_output or output_plan.dry_run:
+def _confirm_default_output_location(output_plan: OutputPlan, input_path: Path, mode: UserMode) -> OutputPlan:
+    if output_plan.explicit_output or output_plan.dry_run or mode == UserMode.DEVELOPER:
         return output_plan
 
     output_path = output_plan.path
@@ -682,13 +716,19 @@ def _single_line(value: str) -> str:
     return " ".join(value.split())
 
 
-def _confirm_existing_output_overwrite(output_path: Path) -> bool:
+def _confirm_existing_output_overwrite(output_path: Path, mode: UserMode) -> bool:
+    if mode == UserMode.DEVELOPER:
+        return False
+
     console.print(f"[yellow]Output path:[/yellow] {output_path}")
     console.print("[yellow]Translated EPUB already exists.[/yellow]")
     return typer.confirm("Overwrite existing translated EPUB?", default=False)
 
 
-def _confirm_existing_preview_overwrite(output_path: Path) -> bool:
+def _confirm_existing_preview_overwrite(output_path: Path, mode: UserMode) -> bool:
+    if mode == UserMode.DEVELOPER:
+        return False
+
     console.print(f"[yellow]Preview output path:[/yellow] {output_path}")
     console.print("[yellow]Preview EPUB already exists.[/yellow]")
     return typer.confirm("Overwrite existing preview EPUB?", default=False)

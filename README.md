@@ -77,6 +77,19 @@ Teste a conexão:
 uv run ayvu test-translator --url http://localhost:5000
 ```
 
+## Modos de Uso
+
+O Ayvu possui dois modos de execução que equilibram facilidade de uso com eficiência técnica:
+
+- **Modo Comum (common)**: Focado em uma experiência guiada. Oferece sugestões de retomada de traduções interrompidas, convites para gerar previews e solicita confirmações antes de ações importantes (como sobrescrever arquivos). É o modo padrão ao executar apenas `ayvu`.
+- **Modo Desenvolvedor (developer)**: Focado em execução direta e automação. Pula perguntas interativas e assume as configurações padrão ou passadas via argumentos. É o modo padrão ao utilizar subcomandos como `translate` ou `inspect`.
+
+Você pode forçar um modo específico usando a opção global `--mode`:
+
+```bash
+uv run ayvu --mode common translate livro.epub
+```
+
 ## Uso
 
 Inspecionar um EPUB:
@@ -140,8 +153,7 @@ uv run ayvu translate livro.epub \
   --glossary glossary.json
 ```
 
-Se a saída já existir, o Ayvu mostra o caminho calculado e pergunta se deve sobrescrever.
-Para pular a pergunta e sobrescrever direto:
+No **Modo Comum**, se a saída já existir, o Ayvu mostra o caminho calculado e pergunta se deve sobrescrever. Para pular a pergunta e sobrescrever direto (comportamento padrão do Modo Desenvolvedor):
 
 ```bash
 uv run ayvu translate livro.epub \
