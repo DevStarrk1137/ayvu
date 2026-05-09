@@ -127,16 +127,16 @@ mostrar a ajuda dos comandos técnicos.
 
 Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
 
-Sem `--output`, o Ayvu mostra a pasta padrão de saída, o nome calculado para o EPUB traduzido
-e pergunta se você deseja manter esse local antes de iniciar a tradução. Por padrão, o arquivo
-traduzido é salvo em:
+Sem `--output`, o Ayvu salva por padrão em:
 
 ```text
 ~/Documentos/Livros/Traduzidos/livro-pt.epub
 ```
 
-Se preferir outro caminho, responda não à pergunta e informe o caminho desejado. Para escolher
-manualmente o caminho da saída sem passar por essa pergunta, use `--output`:
+No **Modo Comum**, o Ayvu mostra a pasta padrão de saída, o nome calculado para o EPUB
+traduzido e pergunta se você deseja manter esse local antes de iniciar a tradução. Se preferir
+outro caminho, responda não à pergunta e informe o caminho desejado. No **Modo Desenvolvedor**,
+use `--output` para escolher manualmente o caminho da saída:
 
 ```bash
 uv run ayvu translate livro.epub \
