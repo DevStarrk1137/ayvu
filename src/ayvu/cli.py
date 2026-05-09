@@ -28,12 +28,15 @@ from .resume import (
     TranslationResumeState,
     default_processing_dir,
 )
-from .translator import LibreTranslateTranslator, TranslatorError
+from .translator import LibreTranslateTranslator, TranslatorError, TranslatorLanguage
 from .validation import validate_output_epub
 
 
 app = typer.Typer(help="Translate local EPUB files with a local HTTP translator.")
 console = Console()
+DEFAULT_SOURCE_LANGUAGE = "en"
+DEFAULT_TARGET_LANGUAGE = "pt"
+DEFAULT_TRANSLATOR_URL = "http://localhost:5000"
 DEFAULT_PREVIEW_DOCUMENT_LIMIT = 12
 
 
@@ -97,9 +100,9 @@ def inspect(epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, r
 
 @app.command("test-translator")
 def test_translator(
-    url: str = typer.Option("http://localhost:5000", "--url", help="LibreTranslate base URL or /translate endpoint."),
-    source: str = typer.Option("en", "--source"),
-    target: str = typer.Option("pt", "--target"),
+    url: str = typer.Option(DEFAULT_TRANSLATOR_URL, "--url", help="LibreTranslate base URL or /translate endpoint."),
+    source: str = typer.Option(DEFAULT_SOURCE_LANGUAGE, "--source"),
+    target: str = typer.Option(DEFAULT_TARGET_LANGUAGE, "--target"),
     timeout: float = typer.Option(10.0, "--timeout"),
     retries: int = typer.Option(1, "--retries"),
 ) -> None:
@@ -113,6 +116,24 @@ def test_translator(
     console.print(f"[green]Translator OK:[/green] Hello world -> {translated}")
 
 
+@app.command("languages")
+def languages(
+    url: str = typer.Option(DEFAULT_TRANSLATOR_URL, "--url", help="LibreTranslate base URL or /translate endpoint."),
+    timeout: float = typer.Option(10.0, "--timeout"),
+    retries: int = typer.Option(1, "--retries"),
+) -> None:
+    """List languages reported by the local LibreTranslate server."""
+    translator = LibreTranslateTranslator(url=url, timeout=timeout, retries=retries)
+    try:
+        available_languages = translator.list_languages()
+    except TranslatorError as exc:
+        console.print(f"[red]Language list failed:[/red] {exc}")
+        console.print("Start LibreTranslate, check --url, and try again.")
+        raise typer.Exit(code=1) from exc
+
+    _print_languages(available_languages)
+
+
 @app.command()
 def translate(
     ctx: typer.Context,
@@ -123,10 +144,10 @@ def translate(
         "-o",
         help="Output EPUB path. Defaults to <input-stem>-<target>.epub.",
     ),
-    source: str = typer.Option("en", "--source", help="Source language."),
-    target: str = typer.Option("pt", "--target", help="Target language."),
+    source: str = typer.Option(DEFAULT_SOURCE_LANGUAGE, "--source", help="Source language."),
+    target: str = typer.Option(DEFAULT_TARGET_LANGUAGE, "--target", help="Target language."),
     translator_name: str = typer.Option("libretranslate", "--translator", help="Translator backend."),
-    url: str = typer.Option("http://localhost:5000", "--url", help="Translator base URL."),
+    url: str = typer.Option(DEFAULT_TRANSLATOR_URL, "--url", help="Translator base URL."),
     cache_path: Path = typer.Option(Path(".cache/traducoes.sqlite"), "--cache", help="SQLite cache path."),
     glossary_path: Optional[Path] = typer.Option(None, "--glossary", help="Optional JSON glossary."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Process without writing translated EPUB."),
@@ -279,10 +300,10 @@ def _run_translation(
 
 def _run_preview(
     epub_path: Path,
-    source: str = "en",
-    target: str = "pt",
+    source: str = DEFAULT_SOURCE_LANGUAGE,
+    target: str = DEFAULT_TARGET_LANGUAGE,
     translator_name: str = "libretranslate",
-    url: str = "http://localhost:5000",
+    url: str = DEFAULT_TRANSLATOR_URL,
     cache_path: Path = Path(".cache/traducoes.sqlite"),
     glossary_path: Path | None = None,
     timeout: float = 30.0,
@@ -457,8 +478,59 @@ def _offer_guided_preview(mode: UserMode) -> bool:
         return False
 
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
-    _run_preview(epub_path, mode=mode)
+    target = _choose_guided_target_language(DEFAULT_TARGET_LANGUAGE)
+    _run_preview(epub_path, target=target, mode=mode)
     return True
+
+
+def _choose_guided_target_language(default_target: str) -> str:
+    console.print(f"[yellow]Default target language:[/yellow] {default_target}")
+    if typer.confirm("Use default target language?", default=True):
+        return default_target
+
+    available_languages = _load_languages_for_guided_selection()
+    if available_languages:
+        _print_languages(available_languages)
+    else:
+        console.print("Enter a language code manually.")
+
+    target = typer.prompt("Target language code", default=default_target).strip()
+    return target or default_target
+
+
+def _load_languages_for_guided_selection() -> tuple[TranslatorLanguage, ...]:
+    translator = LibreTranslateTranslator(url=DEFAULT_TRANSLATOR_URL, timeout=10.0, retries=1)
+    try:
+        return translator.list_languages()
+    except TranslatorError as exc:
+        console.print(f"[yellow]Could not list LibreTranslate languages:[/yellow] {exc}")
+        return ()
+
+
+def _print_languages(languages: tuple[TranslatorLanguage, ...]) -> None:
+    table = Table(title="LibreTranslate languages")
+    table.add_column("Language")
+    table.add_column("Code")
+    table.add_column("State")
+    table.add_column("Targets")
+
+    for language in languages:
+        table.add_row(
+            language.name,
+            language.code,
+            language.state,
+            _display_language_targets(language.targets),
+        )
+    console.print(table)
+
+
+def _display_language_targets(targets: tuple[str, ...]) -> str:
+    if not targets:
+        return "-"
+    if len(targets) <= 8:
+        return ", ".join(targets)
+    first_targets = ", ".join(targets[:8])
+    return f"{first_targets} (+{len(targets) - 8})"
 
 
 def _offer_detected_translation_resume(states: tuple[TranslationResumeState, ...], mode: UserMode) -> bool:

@@ -90,6 +90,12 @@ Você pode forçar um modo específico usando a opção global `--mode`:
 uv run ayvu --mode common translate livro.epub
 ```
 
+Liste os idiomas disponíveis no LibreTranslate local:
+
+```bash
+uv run ayvu languages --url http://localhost:5000
+```
+
 ## Uso
 
 Inspecionar um EPUB:
@@ -123,7 +129,8 @@ salva por padrão em:
 ```
 
 Ao executar apenas `uv run ayvu`, o Ayvu também oferece a opção de gerar preview antes de
-mostrar a ajuda dos comandos técnicos.
+mostrar a ajuda dos comandos técnicos. Nesse fluxo guiado, o Ayvu mostra o idioma de destino
+padrão `pt` e permite escolher outro código a partir dos idiomas informados pelo LibreTranslate.
 
 Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
 

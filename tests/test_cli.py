@@ -14,6 +14,7 @@ from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions, UserMode
 from ayvu.epub_io import TranslationReport
 from ayvu.preflight import PreflightError
 from ayvu.resume import COMPLETED_STATUS, ResumeStateStore, TranslationResumeState
+from ayvu.translator import TranslatorError, TranslatorLanguage
 from ayvu.validation import ValidationResult
 
 
@@ -98,6 +99,53 @@ def test_translate_command_has_clear_error_for_unknown_translator(tmp_path):
     assert "Unsupported translator:" in result.output
     assert "unknown" in result.output
     assert "Use --translator libretranslate." in result.output
+    assert "Traceback" not in result.output
+
+
+def test_languages_command_lists_translator_languages(monkeypatch):
+    calls: dict[str, object] = {}
+
+    class FakeLanguageTranslator:
+        def __init__(self, url: str, timeout: float, retries: int) -> None:
+            calls["url"] = url
+            calls["timeout"] = timeout
+            calls["retries"] = retries
+
+        def list_languages(self) -> tuple[TranslatorLanguage, ...]:
+            return (
+                TranslatorLanguage(code="pt", name="Portuguese", targets=("en", "es")),
+                TranslatorLanguage(code="en", name="English", targets=("pt",)),
+            )
+
+    monkeypatch.setattr("ayvu.cli.LibreTranslateTranslator", FakeLanguageTranslator)
+
+    result = runner.invoke(app, ["languages", "--url", "http://localhost:5000", "--timeout", "2", "--retries", "0"])
+
+    assert result.exit_code == 0
+    assert calls == {"url": "http://localhost:5000", "timeout": 2.0, "retries": 0}
+    assert "LibreTranslate languages" in result.output
+    assert "Portuguese" in result.output
+    assert "pt" in result.output
+    assert "installed" in result.output
+    assert "en, es" in result.output
+
+
+def test_languages_command_reports_failure_without_traceback(monkeypatch):
+    class FailingLanguageTranslator:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        def list_languages(self) -> tuple[TranslatorLanguage, ...]:
+            raise TranslatorError("server unavailable")
+
+    monkeypatch.setattr("ayvu.cli.LibreTranslateTranslator", FailingLanguageTranslator)
+
+    result = runner.invoke(app, ["languages"])
+
+    assert result.exit_code == 1
+    assert "Language list failed:" in result.output
+    assert "server unavailable" in result.output
+    assert "Start LibreTranslate" in result.output
     assert "Traceback" not in result.output
 
 
@@ -274,12 +322,14 @@ def test_root_command_generates_guided_preview_when_confirmed(tmp_path, monkeypa
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
 
-    result = runner.invoke(app, [], input=f"y\n{epub_path}\n")
+    result = runner.invoke(app, [], input=f"y\n{epub_path}\ny\n")
 
     options = calls["options"]
     assert result.exit_code == 0
     assert "Generate a translation preview?" in result.output
     assert "EPUB path" in result.output
+    assert "Default target language:" in result.output
+    assert "Use default target language?" in result.output
     assert "Preview output folder:" in result.output
     assert "Preview EPUB name:" in result.output
     assert "Preview saved to:" in result.output
@@ -287,6 +337,51 @@ def test_root_command_generates_guided_preview_when_confirmed(tmp_path, monkeypa
     assert calls["output_path"] == preview_dir / "book-preview.epub"
     assert options.max_documents == DEFAULT_PREVIEW_DOCUMENT_LIMIT
     assert "Usage:" not in result.output
+
+
+def test_root_command_allows_guided_preview_target_from_languages(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    preview_dir = tmp_path / "Preview"
+    epub_path.write_bytes(b"fake epub")
+    calls: dict[str, object] = {}
+
+    class FakeLanguageTranslator:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        def list_languages(self) -> tuple[TranslatorLanguage, ...]:
+            return (
+                TranslatorLanguage(code="pt", name="Portuguese", targets=("en",)),
+                TranslatorLanguage(code="es", name="Spanish", targets=("en",)),
+            )
+
+    def fake_preflight(**kwargs: object) -> object:
+        calls["target"] = kwargs["language_pair"].target
+        return SimpleNamespace(translator=object(), glossary=None)
+
+    def fake_translate(_input_path: Path, _output_path: Path, **kwargs: object) -> TranslationReport:
+        calls["options"] = kwargs["options"]
+        return TranslationReport(output_path=_output_path, input_path=_input_path, target_language="es")
+
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+    monkeypatch.setattr("ayvu.cli.default_preview_books_dir", lambda: preview_dir)
+    monkeypatch.setattr("ayvu.cli.LibreTranslateTranslator", FakeLanguageTranslator)
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fake_preflight)
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
+
+    result = runner.invoke(app, [], input=f"y\n{epub_path}\nn\nes\n")
+
+    options = calls["options"]
+    assert result.exit_code == 0
+    assert "Default target language:" in result.output
+    assert "LibreTranslate languages" in result.output
+    assert "Portuguese" in result.output
+    assert "Spanish" in result.output
+    assert "Target language code" in result.output
+    assert calls["target"] == "es"
+    assert options.target == "es"
 
 
 def test_preview_option_generates_preview_with_default_settings(tmp_path, monkeypatch):
