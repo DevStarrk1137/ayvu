@@ -7,9 +7,22 @@ from ayvu.translator import LibreTranslateTranslator, TranslatorError
 
 
 class FakeSession:
-    def __init__(self, responses: list[requests.Response | requests.exceptions.RequestException]) -> None:
-        self.responses = responses
+    def __init__(
+        self,
+        responses: list[requests.Response | requests.exceptions.RequestException] | None = None,
+        get_responses: list[requests.Response | requests.exceptions.RequestException] | None = None,
+    ) -> None:
+        self.responses = responses or []
+        self.get_responses = get_responses or []
+        self.gets: list[tuple[str, float]] = []
         self.posts: list[tuple[str, dict[str, str], float]] = []
+
+    def get(self, url: str, *, timeout: float) -> requests.Response:
+        self.gets.append((url, timeout))
+        response = self.get_responses.pop(0)
+        if isinstance(response, requests.exceptions.RequestException):
+            raise response
+        return response
 
     def post(self, url: str, *, json: dict[str, str], timeout: float) -> requests.Response:
         self.posts.append((url, json, timeout))
@@ -134,3 +147,66 @@ def test_libretranslate_reports_timeout() -> None:
         translator.translate("Hello", "en", "pt")
 
     assert "LibreTranslate request timed out after 1.5 seconds" in str(error.value)
+
+
+def test_libretranslate_lists_languages_from_base_url() -> None:
+    session = FakeSession(
+        get_responses=[
+            make_response(
+                200,
+                '[{"code": "en", "name": "English", "targets": ["pt", "es"]},'
+                ' {"code": "pt", "name": "Portuguese", "targets": ["en"]}]',
+            )
+        ]
+    )
+    translator = LibreTranslateTranslator(url="http://localhost:5000/translate", timeout=2.0, retries=0)
+    translator.session = session
+
+    languages = translator.list_languages()
+
+    assert session.gets == [("http://localhost:5000/languages", 2.0)]
+    assert [language.code for language in languages] == ["en", "pt"]
+    assert [language.name for language in languages] == ["English", "Portuguese"]
+    assert languages[0].targets == ("pt", "es")
+    assert languages[0].state == "installed"
+
+
+def test_libretranslate_retries_languages_5xx_before_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    session = FakeSession(
+        get_responses=[
+            make_response(503, "temporarily unavailable"),
+            make_response(200, '[{"code": "pt", "name": "Portuguese", "targets": ["en"]}]'),
+        ]
+    )
+    translator = LibreTranslateTranslator(retries=1)
+    translator.session = session
+    monkeypatch.setattr("ayvu.translator.time.sleep", lambda delay: sleeps.append(delay))
+
+    languages = translator.list_languages()
+
+    assert [language.code for language in languages] == ["pt"]
+    assert len(session.gets) == 2
+    assert sleeps == [0.5]
+
+
+def test_libretranslate_reports_invalid_languages_json() -> None:
+    session = FakeSession(get_responses=[make_response(200, "not-json")])
+    translator = LibreTranslateTranslator(retries=0)
+    translator.session = session
+
+    with pytest.raises(TranslatorError) as error:
+        translator.list_languages()
+
+    assert "LibreTranslate languages response was not valid JSON" in str(error.value)
+
+
+def test_libretranslate_reports_languages_http_error() -> None:
+    session = FakeSession(get_responses=[make_response(500, "broken")])
+    translator = LibreTranslateTranslator(retries=0)
+    translator.session = session
+
+    with pytest.raises(TranslatorError) as error:
+        translator.list_languages()
+
+    assert "LibreTranslate HTTP error 500: broken" in str(error.value)

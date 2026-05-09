@@ -19,6 +19,14 @@ class UnsupportedTranslatorError(TranslatorError):
     pass
 
 
+@dataclass(frozen=True)
+class TranslatorLanguage:
+    code: str
+    name: str
+    targets: tuple[str, ...] = ()
+    state: str = "installed"
+
+
 class Translator(ABC):
     @abstractmethod
     def translate(self, text: str, source: str, target: str) -> str:
@@ -26,6 +34,9 @@ class Translator(ABC):
 
 
 class HttpSession(Protocol):
+    def get(self, url: str, *, timeout: float) -> requests.Response:
+        pass
+
     def post(self, url: str, *, json: dict[str, str], timeout: float) -> requests.Response:
         pass
 
@@ -74,6 +85,35 @@ class LibreTranslateResponseParser:
         if not isinstance(translated, str):
             raise TranslatorError("LibreTranslate response did not include translatedText")
         return translated
+
+
+class LibreTranslateLanguagesParser:
+    def parse(self, response: requests.Response) -> tuple[TranslatorLanguage, ...]:
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise TranslatorError("LibreTranslate languages response was not valid JSON") from exc
+
+        if not isinstance(data, list):
+            raise TranslatorError("LibreTranslate languages response did not include a language list")
+
+        return tuple(self._parse_language_entry(entry) for entry in data)
+
+    @staticmethod
+    def _parse_language_entry(entry: object) -> TranslatorLanguage:
+        if not isinstance(entry, dict):
+            raise TranslatorError("LibreTranslate language entry was not an object")
+
+        code = entry.get("code")
+        name = entry.get("name")
+        if not isinstance(code, str) or not isinstance(name, str):
+            raise TranslatorError("LibreTranslate language entry did not include code and name")
+
+        targets = entry.get("targets", ())
+        if not isinstance(targets, list):
+            targets = []
+        target_codes = tuple(target for target in targets if isinstance(target, str))
+        return TranslatorLanguage(code=code, name=name, targets=target_codes)
 
 
 @dataclass
@@ -126,8 +166,46 @@ class LibreTranslateTranslator(Translator):
 
         raise TranslatorError(f"LibreTranslate request failed: {last_error}")
 
+    def list_languages(self) -> tuple[TranslatorLanguage, ...]:
+        endpoint = self._normalize_languages_endpoint(self.url)
+        last_error: Exception | None = None
+
+        for attempt in self.retry_policy.attempts():
+            try:
+                response = self._get_languages(endpoint)
+                if self._should_retry_response(response, attempt):
+                    self._wait_before_retry(attempt)
+                    continue
+                response.raise_for_status()
+                return LibreTranslateLanguagesParser().parse(response)
+            except requests.exceptions.ConnectionError as exc:
+                last_error = exc
+                if self._retry_after_exception(attempt):
+                    continue
+                raise TranslatorError(
+                    f"Could not connect to LibreTranslate at {endpoint}. "
+                    "Is the local translation server running?"
+                ) from exc
+            except requests.exceptions.Timeout as exc:
+                last_error = exc
+                if self._retry_after_exception(attempt):
+                    continue
+                raise TranslatorError(f"LibreTranslate languages request timed out after {self.timeout} seconds") from exc
+            except requests.exceptions.HTTPError as exc:
+                raise self._http_error(exc) from exc
+            except requests.exceptions.RequestException as exc:
+                last_error = exc
+                if self._retry_after_exception(attempt):
+                    continue
+                raise TranslatorError(f"LibreTranslate languages request failed: {exc}") from exc
+
+        raise TranslatorError(f"LibreTranslate languages request failed: {last_error}")
+
     def _post(self, payload: LibreTranslatePayload) -> requests.Response:
         return self.session.post(self.endpoint, json=payload.as_json(), timeout=self.timeout)
+
+    def _get_languages(self, endpoint: str) -> requests.Response:
+        return self.session.get(endpoint, timeout=self.timeout)
 
     def _should_retry_response(self, response: requests.Response, attempt: int) -> bool:
         return response.status_code >= 500 and self.retry_policy.can_retry(attempt)
@@ -151,10 +229,18 @@ class LibreTranslateTranslator(Translator):
 
     @staticmethod
     def _normalize_endpoint(url: str) -> str:
+        return f"{LibreTranslateTranslator._normalize_base_url(url)}/translate"
+
+    @staticmethod
+    def _normalize_languages_endpoint(url: str) -> str:
+        return f"{LibreTranslateTranslator._normalize_base_url(url)}/languages"
+
+    @staticmethod
+    def _normalize_base_url(url: str) -> str:
         clean = url.rstrip("/")
         if clean.endswith("/translate"):
-            return clean
-        return f"{clean}/translate"
+            return clean[: -len("/translate")]
+        return clean
 
 
 def create_translator(name: str, url: str, timeout: float = 30.0, retries: int = 2) -> Translator:
