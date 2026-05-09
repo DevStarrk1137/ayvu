@@ -77,6 +77,19 @@ Teste a conexão:
 uv run ayvu test-translator --url http://localhost:5000
 ```
 
+## Modos de Uso
+
+O Ayvu possui dois modos de execução que equilibram facilidade de uso com eficiência técnica:
+
+- **Modo Comum (common)**: Focado em uma experiência guiada. Oferece sugestões de retomada de traduções interrompidas, convites para gerar previews e solicita confirmações antes de ações importantes (como sobrescrever arquivos). É o modo padrão ao executar apenas `ayvu`.
+- **Modo Desenvolvedor (developer)**: Focado em execução direta e automação. Pula perguntas interativas e assume as configurações padrão ou passadas via argumentos. É o modo padrão ao utilizar subcomandos como `translate` ou `inspect`.
+
+Você pode forçar um modo específico usando a opção global `--mode`:
+
+```bash
+uv run ayvu --mode common translate livro.epub
+```
+
 ## Uso
 
 Inspecionar um EPUB:
@@ -114,16 +127,16 @@ mostrar a ajuda dos comandos técnicos.
 
 Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
 
-Sem `--output`, o Ayvu mostra a pasta padrão de saída, o nome calculado para o EPUB traduzido
-e pergunta se você deseja manter esse local antes de iniciar a tradução. Por padrão, o arquivo
-traduzido é salvo em:
+Sem `--output`, o Ayvu salva por padrão em:
 
 ```text
 ~/Documentos/Livros/Traduzidos/livro-pt.epub
 ```
 
-Se preferir outro caminho, responda não à pergunta e informe o caminho desejado. Para escolher
-manualmente o caminho da saída sem passar por essa pergunta, use `--output`:
+No **Modo Comum**, o Ayvu mostra a pasta padrão de saída, o nome calculado para o EPUB
+traduzido e pergunta se você deseja manter esse local antes de iniciar a tradução. Se preferir
+outro caminho, responda não à pergunta e informe o caminho desejado. No **Modo Desenvolvedor**,
+use `--output` para escolher manualmente o caminho da saída:
 
 ```bash
 uv run ayvu translate livro.epub \
@@ -140,8 +153,7 @@ uv run ayvu translate livro.epub \
   --glossary glossary.json
 ```
 
-Se a saída já existir, o Ayvu mostra o caminho calculado e pergunta se deve sobrescrever.
-Para pular a pergunta e sobrescrever direto:
+No **Modo Comum**, se a saída já existir, o Ayvu mostra o caminho calculado e pergunta se deve sobrescrever. Para pular a pergunta e sobrescrever direto (comportamento padrão do Modo Desenvolvedor):
 
 ```bash
 uv run ayvu translate livro.epub \
@@ -157,10 +169,7 @@ uv run ayvu translate livro.epub \
   --dry-run
 ```
 
-Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original,
-idiomas, saída calculada, capítulos processados, textos traduzidos, cache e erros.
-Também pergunta se deve salvar esse relatório em Markdown em
-`~/Documentos/Livros/Relatorios`.
+Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, capítulos processados, textos traduzidos, cache e erros. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`.
 
 Extrair texto visível para Markdown:
 
@@ -235,3 +244,4 @@ ayvu/
 - EPUBs com XHTML malformado podem depender do comportamento do parser.
 - Livros técnicos costumam exigir glossário para manter termos consistentes.
 - A qualidade final depende do servidor de tradução usado.
+inal depende do servidor de tradução usado.

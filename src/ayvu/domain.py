@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+
+
+class UserMode(Enum):
+    COMMON = "common"
+    DEVELOPER = "developer"
 
 
 class LanguagePairError(ValueError):
