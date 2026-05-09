@@ -169,10 +169,7 @@ uv run ayvu translate livro.epub \
   --dry-run
 ```
 
-Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original,
-idiomas, saída calculada, capítulos processados, textos traduzidos, cache e erros.
-Também pergunta se deve salvar esse relatório em Markdown em
-`~/Documentos/Livros/Relatorios`.
+Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, capítulos processados, textos traduzidos, cache e erros. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`.
 
 Extrair texto visível para Markdown:
 
@@ -247,3 +244,4 @@ ayvu/
 - EPUBs com XHTML malformado podem depender do comportamento do parser.
 - Livros técnicos costumam exigir glossário para manter termos consistentes.
 - A qualidade final depende do servidor de tradução usado.
+inal depende do servidor de tradução usado.
