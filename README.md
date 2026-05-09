@@ -128,9 +128,11 @@ salva por padrão em:
 ~/Documentos/Livros/Preview/livro-preview.epub
 ```
 
-Ao executar apenas `uv run ayvu`, o Ayvu também oferece a opção de gerar preview antes de
-mostrar a ajuda dos comandos técnicos. Nesse fluxo guiado, o Ayvu mostra o idioma de destino
-padrão `pt` e permite escolher outro código a partir dos idiomas informados pelo LibreTranslate.
+Ao executar apenas `uv run ayvu`, o Ayvu abre um primeiro menu guiado com opções para traduzir
+livro, gerar preview, abrir biblioteca, acessar configurações, mostrar ajuda ou sair. Biblioteca
+e configurações ainda aparecem como opções indisponíveis. Nos fluxos guiados de tradução e
+preview, o Ayvu mostra o idioma de destino padrão `pt` e permite escolher outro código a partir
+dos idiomas informados pelo LibreTranslate.
 
 Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
 

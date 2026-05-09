@@ -155,7 +155,7 @@ def test_root_command_shows_processing_translation_state(tmp_path, monkeypatch):
     ResumeStateStore(processing_dir).save(state)
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
 
-    result = runner.invoke(app, [], input="n\nn\n")
+    result = runner.invoke(app, [], input="n\n0\n")
 
     assert result.exit_code == 0
     assert "Translations in progress were found." in result.output
@@ -165,8 +165,9 @@ def test_root_command_shows_processing_translation_state(tmp_path, monkeypatch):
     assert "cache.sqlite" in result.output
     assert "Continue detected translation?" in result.output
     assert "Detected translation was not resumed." in result.output
-    assert "Generate a translation preview?" in result.output
-    assert "Usage:" in result.output
+    assert "Choose an option" in result.output
+    assert "Generate preview" in result.output
+    assert "Canceled." in result.output
 
 
 def test_root_command_in_developer_mode_skips_guided_prompts(tmp_path, monkeypatch):
@@ -284,18 +285,20 @@ def test_root_command_reports_invalid_processing_state(tmp_path, monkeypatch):
     assert "bad.ayvu-state.json" in result.output
     assert "not valid JSON" in result.output
     assert "Restart the translation" in result.output
-    assert "Generate a translation preview?" in result.output
+    assert "Choose an option" in result.output
+    assert "Generate preview" in result.output
     assert "Usage:" in result.output
 
 
 def test_root_command_without_processing_state_has_no_processing_noise(tmp_path, monkeypatch):
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
 
-    result = runner.invoke(app, [], input="n\n")
+    result = runner.invoke(app, [], input="0\n")
 
     assert result.exit_code == 0
-    assert "Generate a translation preview?" in result.output
-    assert "Usage:" in result.output
+    assert "Choose an option" in result.output
+    assert "Generate preview" in result.output
+    assert "Canceled." in result.output
     assert "Translations in progress were found." not in result.output
     assert "Invalid processing state files were found." not in result.output
 
@@ -322,11 +325,12 @@ def test_root_command_generates_guided_preview_when_confirmed(tmp_path, monkeypa
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
 
-    result = runner.invoke(app, [], input=f"y\n{epub_path}\ny\n")
+    result = runner.invoke(app, [], input=f"2\n{epub_path}\ny\n")
 
     options = calls["options"]
     assert result.exit_code == 0
-    assert "Generate a translation preview?" in result.output
+    assert "Choose an option" in result.output
+    assert "Generate preview" in result.output
     assert "EPUB path" in result.output
     assert "Default target language:" in result.output
     assert "Use default target language?" in result.output
@@ -371,7 +375,7 @@ def test_root_command_allows_guided_preview_target_from_languages(tmp_path, monk
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
 
-    result = runner.invoke(app, [], input=f"y\n{epub_path}\nn\nes\n")
+    result = runner.invoke(app, [], input=f"2\n{epub_path}\nn\nes\n")
 
     options = calls["options"]
     assert result.exit_code == 0
@@ -382,6 +386,76 @@ def test_root_command_allows_guided_preview_target_from_languages(tmp_path, monk
     assert "Target language code" in result.output
     assert calls["target"] == "es"
     assert options.target == "es"
+
+
+def test_root_command_starts_guided_translation(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    output_dir = tmp_path / "Traduzidos"
+    processing_dir = tmp_path / "Processando"
+    epub_path.write_bytes(b"fake epub")
+    calls: dict[str, object] = {}
+
+    def fake_translate(input_path: Path, output_path: Path, **kwargs: object) -> TranslationReport:
+        calls["input_path"] = input_path
+        calls["output_path"] = output_path
+        calls["options"] = kwargs["options"]
+        return TranslationReport(output_path=output_path, input_path=input_path, target_language="pt")
+
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: output_dir)
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+    )
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
+    monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
+
+    result = runner.invoke(app, [], input=f"1\n{epub_path}\ny\ny\n")
+
+    options = calls["options"]
+    assert result.exit_code == 0
+    assert "Translate a book" in result.output
+    assert "EPUB path" in result.output
+    assert "Default target language:" in result.output
+    assert "Default output folder:" in result.output
+    assert calls["input_path"] == epub_path
+    assert calls["output_path"] == output_dir / "book-pt.epub"
+    assert options.target == "pt"
+
+
+def test_root_command_shows_guided_library_placeholder(tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(app, [], input="3\n")
+
+    assert result.exit_code == 0
+    assert "Open library" in result.output
+    assert "Library is not available yet." in result.output
+    assert "Use the command help" in result.output
+
+
+def test_root_command_shows_guided_settings_placeholder(tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(app, [], input="4\n")
+
+    assert result.exit_code == 0
+    assert "Settings" in result.output
+    assert "Settings menu is not available yet." in result.output
+    assert "Use the command help" in result.output
+
+
+def test_root_command_can_show_help_from_guided_menu(tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(app, [], input="5\n")
+
+    assert result.exit_code == 0
+    assert "Show command help" in result.output
+    assert "Usage:" in result.output
+    assert "translate" in result.output
 
 
 def test_preview_option_generates_preview_with_default_settings(tmp_path, monkeypatch):

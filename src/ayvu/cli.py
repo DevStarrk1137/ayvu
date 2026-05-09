@@ -38,6 +38,12 @@ DEFAULT_SOURCE_LANGUAGE = "en"
 DEFAULT_TARGET_LANGUAGE = "pt"
 DEFAULT_TRANSLATOR_URL = "http://localhost:5000"
 DEFAULT_PREVIEW_DOCUMENT_LIMIT = 12
+GUIDED_TRANSLATE_OPTION = "1"
+GUIDED_PREVIEW_OPTION = "2"
+GUIDED_LIBRARY_OPTION = "3"
+GUIDED_SETTINGS_OPTION = "4"
+GUIDED_HELP_OPTION = "5"
+GUIDED_EXIT_OPTION = "0"
 
 
 @app.callback(invoke_without_command=True)
@@ -76,7 +82,7 @@ def main(
     if _offer_detected_translation_resume(scan.running, mode=mode):
         return
 
-    if _offer_guided_preview(mode=mode):
+    if _run_guided_main_flow(ctx, mode=mode):
         return
 
     console.print(ctx.get_help())
@@ -470,17 +476,89 @@ def _print_processing_translation_states(store: ResumeStateStore) -> ResumeState
     return scan
 
 
-def _offer_guided_preview(mode: UserMode) -> bool:
+def _run_guided_main_flow(ctx: typer.Context, mode: UserMode) -> bool:
     if mode == UserMode.DEVELOPER:
         return False
 
-    if not typer.confirm("Generate a translation preview?", default=False):
-        return False
+    _print_guided_main_menu()
+    choice = typer.prompt("Choose an option", default=GUIDED_PREVIEW_OPTION).strip()
+    return _handle_guided_main_choice(choice, ctx)
 
+
+def _print_guided_main_menu() -> None:
+    table = Table(title="Ayvu")
+    table.add_column("Option")
+    table.add_column("Action")
+    table.add_row(GUIDED_TRANSLATE_OPTION, "Translate a book")
+    table.add_row(GUIDED_PREVIEW_OPTION, "Generate preview")
+    table.add_row(GUIDED_LIBRARY_OPTION, "Open library")
+    table.add_row(GUIDED_SETTINGS_OPTION, "Settings")
+    table.add_row(GUIDED_HELP_OPTION, "Show command help")
+    table.add_row(GUIDED_EXIT_OPTION, "Exit")
+    console.print(table)
+
+
+def _handle_guided_main_choice(choice: str, ctx: typer.Context) -> bool:
+    if choice == GUIDED_TRANSLATE_OPTION:
+        _run_guided_translation()
+        return True
+
+    if choice == GUIDED_PREVIEW_OPTION:
+        _run_guided_preview()
+        return True
+
+    if choice == GUIDED_LIBRARY_OPTION:
+        _print_guided_placeholder("Library")
+        return True
+
+    if choice == GUIDED_SETTINGS_OPTION:
+        _print_guided_placeholder("Settings menu")
+        return True
+
+    if choice == GUIDED_HELP_OPTION:
+        console.print(ctx.get_help())
+        return True
+
+    if choice == GUIDED_EXIT_OPTION:
+        console.print("Canceled.")
+        return True
+
+    console.print("[red]Unknown option.[/red]")
+    console.print(ctx.get_help())
+    return True
+
+
+def _run_guided_translation() -> None:
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
     target = _choose_guided_target_language(DEFAULT_TARGET_LANGUAGE)
-    _run_preview(epub_path, target=target, mode=mode)
-    return True
+    _run_translation(
+        epub_path=epub_path,
+        output=None,
+        source=DEFAULT_SOURCE_LANGUAGE,
+        target=target,
+        translator_name="libretranslate",
+        url=DEFAULT_TRANSLATOR_URL,
+        cache_path=Path(".cache/traducoes.sqlite"),
+        glossary_path=None,
+        dry_run=False,
+        fail_fast=False,
+        overwrite=False,
+        timeout=30.0,
+        retries=2,
+        chunk_limit=3000,
+        mode=UserMode.COMMON,
+    )
+
+
+def _run_guided_preview() -> None:
+    epub_path = Path(typer.prompt("EPUB path")).expanduser()
+    target = _choose_guided_target_language(DEFAULT_TARGET_LANGUAGE)
+    _run_preview(epub_path, target=target, mode=UserMode.COMMON)
+
+
+def _print_guided_placeholder(name: str) -> None:
+    console.print(f"[yellow]{name} is not available yet.[/yellow]")
+    console.print("Use the command help for the current technical commands.")
 
 
 def _choose_guided_target_language(default_target: str) -> str:
