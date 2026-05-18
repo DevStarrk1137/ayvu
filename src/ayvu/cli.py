@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,7 @@ from rich.table import Table
 
 from .cache import TranslationCache
 from .cli_progress import TranslationProgress, TranslationProgressSnapshot
+from .config import AyvuConfig, ConfigError, ConfigStore
 from .domain import (
     LanguagePair,
     OutputPlan,
@@ -560,9 +562,43 @@ def _run_guided_main_flow(ctx: typer.Context, mode: UserMode) -> bool:
     if mode == UserMode.DEVELOPER:
         return False
 
+    config = _load_or_init_config()
     _print_guided_main_menu()
     choice = typer.prompt("Choose an option", default=GUIDED_PREVIEW_OPTION).strip()
-    return _handle_guided_main_choice(choice, ctx)
+    return _handle_guided_main_choice(choice, ctx, config)
+
+
+def _load_or_init_config(store: ConfigStore | None = None) -> AyvuConfig:
+    store = store or ConfigStore.default()
+    if not store.path.exists():
+        return _init_default_language_config(store)
+
+    try:
+        return store.load()
+    except ConfigError as exc:
+        console.print(f"[yellow]Configuração inválida ignorada:[/yellow] {exc}")
+        console.print("Usando configuração padrão. Ajuste o arquivo de configuração se quiser alterar o idioma.")
+        return AyvuConfig.default()
+
+
+def _init_default_language_config(store: ConfigStore) -> AyvuConfig:
+    console.print("[yellow]Primeiro uso do modo comum.[/yellow]")
+    console.print("Escolha o idioma padrão de leitura/tradução. Você poderá alterá-lo depois em Settings.")
+    language = _prompt_target_language_code(DEFAULT_TARGET_LANGUAGE)
+    config = AyvuConfig(default_target_language=language)
+    if _save_config(store, config):
+        console.print(f"[green]Idioma padrão salvo:[/green] {language}")
+    return config
+
+
+def _save_config(store: ConfigStore, config: AyvuConfig) -> bool:
+    try:
+        store.save(config)
+        return True
+    except ConfigError as exc:
+        console.print(f"[yellow]Não foi possível salvar a configuração:[/yellow] {exc}")
+        console.print("O idioma será usado nesta execução, mas não foi persistido.")
+        return False
 
 
 def _print_guided_main_menu() -> None:
@@ -578,13 +614,13 @@ def _print_guided_main_menu() -> None:
     console.print(table)
 
 
-def _handle_guided_main_choice(choice: str, ctx: typer.Context) -> bool:
+def _handle_guided_main_choice(choice: str, ctx: typer.Context, config: AyvuConfig) -> bool:
     if choice == GUIDED_TRANSLATE_OPTION:
-        _run_guided_translation()
+        _run_guided_translation(config.default_target_language)
         return True
 
     if choice == GUIDED_PREVIEW_OPTION:
-        _run_guided_preview()
+        _run_guided_preview(config.default_target_language)
         return True
 
     if choice == GUIDED_LIBRARY_OPTION:
@@ -592,7 +628,7 @@ def _handle_guided_main_choice(choice: str, ctx: typer.Context) -> bool:
         return True
 
     if choice == GUIDED_SETTINGS_OPTION:
-        _print_guided_placeholder("Settings menu")
+        _run_guided_settings(config)
         return True
 
     if choice == GUIDED_HELP_OPTION:
@@ -608,9 +644,9 @@ def _handle_guided_main_choice(choice: str, ctx: typer.Context) -> bool:
     return True
 
 
-def _run_guided_translation() -> None:
+def _run_guided_translation(default_target: str) -> None:
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
-    target = _choose_guided_target_language(DEFAULT_TARGET_LANGUAGE)
+    target = _choose_guided_target_language(default_target)
     _run_translation(
         epub_path=epub_path,
         output=None,
@@ -630,10 +666,26 @@ def _run_guided_translation() -> None:
     )
 
 
-def _run_guided_preview() -> None:
+def _run_guided_preview(default_target: str) -> None:
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
-    target = _choose_guided_target_language(DEFAULT_TARGET_LANGUAGE)
+    target = _choose_guided_target_language(default_target)
     _run_preview(epub_path, target=target, mode=UserMode.COMMON)
+
+
+def _run_guided_settings(config: AyvuConfig) -> None:
+    console.print(f"[yellow]Current default language:[/yellow] {config.default_target_language}")
+    if not typer.confirm("Change default language?", default=False):
+        console.print("Default language unchanged.")
+        return
+
+    language = _prompt_target_language_code(config.default_target_language)
+    if language == config.default_target_language:
+        console.print("Default language unchanged.")
+        return
+
+    updated = replace(config, default_target_language=language)
+    if _save_config(ConfigStore.default(), updated):
+        console.print(f"[green]Default language saved:[/green] {language}")
 
 
 def _print_guided_placeholder(name: str) -> None:
@@ -646,6 +698,10 @@ def _choose_guided_target_language(default_target: str) -> str:
     if typer.confirm("Use default target language?", default=True):
         return default_target
 
+    return _prompt_target_language_code(default_target)
+
+
+def _prompt_target_language_code(default_target: str) -> str:
     available_languages = _load_languages_for_guided_selection()
     if available_languages:
         _print_languages(available_languages)

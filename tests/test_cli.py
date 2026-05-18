@@ -1,6 +1,8 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from typer.testing import CliRunner
 
 from ayvu.cli import (
@@ -19,6 +21,33 @@ from ayvu.validation import ValidationResult
 
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def isolated_config(tmp_path, monkeypatch):
+    """Isolate Ayvu config per test and pre-write a default config.
+
+    Most guided-flow tests assume the default language already exists, so the
+    first-use prompt does not fire. Tests that exercise the first-use flow
+    delete the returned path before invoking the CLI.
+    """
+    config_home = tmp_path / "xdg"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    config_path = config_home / "ayvu" / "config.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps({"version": 1, "default_target_language": "pt"}) + "\n",
+        encoding="utf-8",
+    )
+    return config_path
+
+
+class FakeNoLanguagesTranslator:
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+    def list_languages(self) -> tuple[TranslatorLanguage, ...]:
+        raise TranslatorError("no server")
 
 
 def test_output_plan_keeps_explicit_output():
@@ -486,15 +515,95 @@ def test_root_command_shows_guided_library_placeholder(tmp_path, monkeypatch):
     assert "Use the command help" in result.output
 
 
-def test_root_command_shows_guided_settings_placeholder(tmp_path, monkeypatch):
+def test_root_command_settings_keeps_language_when_not_changed(tmp_path, monkeypatch):
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
 
-    result = runner.invoke(app, [], input="4\n")
+    result = runner.invoke(app, [], input="4\nn\n")
 
     assert result.exit_code == 0
-    assert "Settings" in result.output
-    assert "Settings menu is not available yet." in result.output
-    assert "Use the command help" in result.output
+    assert "Current default language:" in result.output
+    assert "Change default language?" in result.output
+    assert "Default language unchanged." in result.output
+
+
+def test_root_command_settings_changes_and_persists_language(isolated_config, tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+    monkeypatch.setattr("ayvu.cli.LibreTranslateTranslator", FakeNoLanguagesTranslator)
+
+    result = runner.invoke(app, [], input="4\ny\nes\n")
+
+    assert result.exit_code == 0
+    assert "Default language saved:" in result.output
+    saved = json.loads(isolated_config.read_text(encoding="utf-8"))
+    assert saved["default_target_language"] == "es"
+
+
+def test_root_command_first_use_asks_and_saves_default_language(isolated_config, tmp_path, monkeypatch):
+    isolated_config.unlink()
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+    monkeypatch.setattr("ayvu.cli.LibreTranslateTranslator", FakeNoLanguagesTranslator)
+
+    result = runner.invoke(app, [], input="es\n0\n")
+
+    assert result.exit_code == 0
+    assert "Primeiro uso do modo comum." in result.output
+    assert "Idioma padrão salvo:" in result.output
+    saved = json.loads(isolated_config.read_text(encoding="utf-8"))
+    assert saved["default_target_language"] == "es"
+
+
+def test_root_command_does_not_reask_when_config_exists(tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(app, [], input="0\n")
+
+    assert result.exit_code == 0
+    assert "Primeiro uso do modo comum." not in result.output
+    assert "Choose an option" in result.output
+
+
+def test_root_command_uses_saved_default_language_in_guided_preview(isolated_config, tmp_path, monkeypatch):
+    isolated_config.write_text(
+        json.dumps({"version": 1, "default_target_language": "es"}) + "\n",
+        encoding="utf-8",
+    )
+    epub_path = tmp_path / "book.epub"
+    preview_dir = tmp_path / "Preview"
+    epub_path.write_bytes(b"fake epub")
+    calls: dict[str, object] = {}
+
+    def fake_preflight(**kwargs: object) -> object:
+        calls["target"] = kwargs["language_pair"].target
+        return SimpleNamespace(translator=object(), glossary=None)
+
+    def fake_translate(_input_path: Path, _output_path: Path, **kwargs: object) -> TranslationReport:
+        calls["options"] = kwargs["options"]
+        return TranslationReport(output_path=_output_path, input_path=_input_path, target_language="es")
+
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+    monkeypatch.setattr("ayvu.cli.default_preview_books_dir", lambda: preview_dir)
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fake_preflight)
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1))
+
+    result = runner.invoke(app, [], input=f"2\n{epub_path}\ny\n")
+
+    assert result.exit_code == 0
+    assert "Default target language:" in result.output
+    assert calls["target"] == "es"
+    assert calls["options"].target == "es"
+
+
+def test_root_command_ignores_invalid_config(isolated_config, tmp_path, monkeypatch):
+    isolated_config.write_text("{not valid json", encoding="utf-8")
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(app, [], input="0\n")
+
+    assert result.exit_code == 0
+    assert "Configuração inválida ignorada:" in result.output
+    assert "Choose an option" in result.output
 
 
 def test_root_command_can_show_help_from_guided_menu(tmp_path, monkeypatch):

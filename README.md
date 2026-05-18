@@ -135,11 +135,17 @@ salva por padrão em:
 ~/Documentos/Livros/Preview/livro-preview.epub
 ```
 
+No primeiro uso do modo comum, o Ayvu pergunta o idioma padrão de leitura/tradução e o
+salva na configuração. Nas próximas execuções esse idioma é usado como destino padrão
+em traduções e previews, sem perguntar de novo.
+
 Ao executar apenas `uv run ayvu`, o Ayvu abre um primeiro menu guiado com opções para traduzir
 livro, gerar preview, abrir biblioteca, acessar configurações, mostrar ajuda ou sair. Biblioteca
-e configurações ainda aparecem como opções indisponíveis. Nos fluxos guiados de tradução e
-preview, o Ayvu mostra o idioma de destino padrão `pt` e permite escolher outro código a partir
-dos idiomas informados pelo LibreTranslate.
+ainda aparece como opção indisponível. A opção `Settings` permite ver e alterar o idioma
+padrão, salvando a mudança na configuração (o restante das configurações ainda não está
+pronto). Nos fluxos guiados de tradução e preview, o Ayvu mostra o idioma de destino padrão
+salvo e permite escolher outro código a partir dos idiomas informados pelo LibreTranslate.
+No modo desenvolvedor, o idioma de destino continua sendo definido por `--target`.
 
 Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
 
@@ -232,8 +238,10 @@ nessa pasta e oferece retomar uma execução detectada.
 
 ## Configuração
 
-O Ayvu já define um formato inicial para preferências locais. A interface de
-configurações ainda não está pronta, mas o arquivo planejado fica em:
+O Ayvu já define um formato inicial para preferências locais. O modo comum já
+usa o campo `default_target_language`: ele é perguntado no primeiro uso e pode
+ser alterado depois pela opção `Settings`. Os demais campos ainda não têm
+interface dedicada. O arquivo fica em:
 
 ```text
 $XDG_CONFIG_HOME/ayvu/config.json
