@@ -155,7 +155,7 @@ A biblioteca guiada ainda não está completa. Enquanto isso, use a estrutura pa
 └── Processando/
 ```
 
-Mantenha EPUBs originais em `Original`, previews em `Preview`, traduções finais em `Traduzidos` e relatórios em `Relatorios`. O Ayvu já usa algumas dessas pastas nos fluxos atuais.
+Mantenha EPUBs originais em `Original`, previews em `Preview`, traduções finais em `Traduzidos` e relatórios em `Relatorios`. `Original` é apenas uma convenção manual do usuário por enquanto; o Ayvu ainda não cria nem gerencia essa pasta. O Ayvu já usa algumas dessas pastas nos fluxos atuais.
 
 ## Tutorial dev: comandos diretos
 
