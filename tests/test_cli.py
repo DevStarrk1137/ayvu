@@ -585,7 +585,7 @@ def test_root_command_uses_saved_default_language_in_guided_preview(isolated_con
     monkeypatch.setattr("ayvu.cli.run_translation_preflight", fake_preflight)
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
-    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path: ValidationResult(ok=True, document_count=1))
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1))
 
     result = runner.invoke(app, [], input=f"2\n{epub_path}\ny\n")
 
