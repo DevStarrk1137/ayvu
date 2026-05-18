@@ -230,6 +230,45 @@ automaticamente.
 Ao executar `uv run ayvu`, o modo comum procura estados de tradução em andamento
 nessa pasta e oferece retomar uma execução detectada.
 
+## Configuração
+
+O Ayvu já define um formato inicial para preferências locais. A interface de
+configurações ainda não está pronta, mas o arquivo planejado fica em:
+
+```text
+$XDG_CONFIG_HOME/ayvu/config.json
+```
+
+Quando `XDG_CONFIG_HOME` não estiver definido, o fallback é:
+
+```text
+~/.config/ayvu/config.json
+```
+
+Formato inicial:
+
+```json
+{
+  "version": 1,
+  "default_target_language": "pt",
+  "books_dir": "~/Documentos/Livros",
+  "folders": {
+    "original": "Original",
+    "translated": "Traduzidos",
+    "preview": "Preview",
+    "reports": "Relatorios",
+    "processing": "Processando"
+  },
+  "reader_app": null
+}
+```
+
+A precedência planejada é:
+
+```text
+argumentos da CLI > arquivo de configuração > padrões internos
+```
+
 ## Testes
 
 ```bash

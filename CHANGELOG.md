@@ -13,6 +13,7 @@ lancadas e secoes versionadas quando uma release for publicada.
 - Modo comum e modo desenvolvedor via `--mode`.
 - Preview traduzido com `uv run ayvu --preview livro.epub`.
 - Comando `languages` para listar idiomas retornados pelo LibreTranslate.
+- Formato inicial de configuracao em JSON para preferencias locais do Ayvu.
 - Preflight antes da traducao real, verificando EPUB, cache, glossario,
   idiomas e tradutor.
 - Estado local de retomada em `~/Documentos/Livros/Processando`.
