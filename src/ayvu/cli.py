@@ -89,9 +89,17 @@ def main(
 
 
 @app.command()
-def inspect(epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True)) -> None:
+def inspect(
+    ctx: typer.Context,
+    epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
+) -> None:
     """Show basic information about an EPUB."""
-    info = inspect_epub(epub_path)
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
+    try:
+        info = inspect_epub(epub_path)
+    except Exception as exc:
+        _print_epub_read_error(str(exc), mode)
+        raise typer.Exit(code=1) from exc
     table = Table(title="EPUB information")
     table.add_column("Field")
     table.add_column("Value")
@@ -202,6 +210,15 @@ def _print_expected_error(summary: str, next_step: str, mode: UserMode, detail: 
     if mode == UserMode.DEVELOPER and detail:
         console.print(f"[dim]Detalhe técnico: {detail}[/dim]")
     console.print(next_step)
+
+
+def _print_epub_read_error(detail: str, mode: UserMode) -> None:
+    _print_expected_error(
+        "Não foi possível ler o EPUB informado.",
+        "Confirme que o arquivo é um EPUB válido e legível e tente novamente.",
+        mode,
+        detail=detail,
+    )
 
 
 def _run_translation(
@@ -410,16 +427,22 @@ def _run_preview(
 
 @app.command()
 def extract(
+    ctx: typer.Context,
     epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
     output: Path = typer.Option(..., "--output", "-o", help="Directory where Markdown files will be written."),
     overwrite: bool = typer.Option(False, "--overwrite", help="Allow writing into an existing non-empty directory."),
 ) -> None:
     """Extract visible text from EPUB documents to Markdown files without translating."""
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
     if output.exists() and any(output.iterdir()) and not overwrite:
         console.print(f"[red]Output directory is not empty:[/red] {output}")
         console.print("Use --overwrite to write into it.")
         raise typer.Exit(code=1)
-    written = extract_markdown(epub_path, output)
+    try:
+        written = extract_markdown(epub_path, output)
+    except Exception as exc:
+        _print_epub_read_error(str(exc), mode)
+        raise typer.Exit(code=1) from exc
     console.print(f"[green]Extracted {len(written)} Markdown files to[/green] {output}")
 
 

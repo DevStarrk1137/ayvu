@@ -880,3 +880,28 @@ def _resume_state(tmp_path: Path) -> TranslationResumeState:
         timeout=30.0,
         retries=2,
     )
+
+
+def test_inspect_command_reports_invalid_epub_without_traceback(tmp_path):
+    epub_path = tmp_path / "bad.epub"
+    epub_path.write_bytes(b"not a real epub")
+
+    result = runner.invoke(app, ["inspect", str(epub_path)])
+
+    assert result.exit_code == 1
+    assert "Não foi possível ler o EPUB informado." in result.output
+    assert "Confirme que o arquivo é um EPUB válido e legível" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_extract_command_reports_invalid_epub_without_traceback(tmp_path):
+    epub_path = tmp_path / "bad.epub"
+    epub_path.write_bytes(b"not a real epub")
+    output_dir = tmp_path / "out"
+
+    result = runner.invoke(app, ["extract", str(epub_path), "--output", str(output_dir)])
+
+    assert result.exit_code == 1
+    assert "Não foi possível ler o EPUB informado." in result.output
+    assert "Confirme que o arquivo é um EPUB válido e legível" in result.output
+    assert "Traceback" not in result.output
