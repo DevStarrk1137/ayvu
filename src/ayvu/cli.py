@@ -289,11 +289,13 @@ def _run_translation(
         )
         raise typer.Exit(code=1) from exc
 
-    _print_report(report, dry_run)
-    _offer_markdown_report(report, dry_run, mode=mode)
+    validation = None if dry_run else _validate_with_progress(output_path)
+    validation_warnings = validation.warnings if validation else []
 
-    if not dry_run:
-        validation = _validate_with_progress(output_path)
+    _print_report(report, dry_run, validation_warnings)
+    _offer_markdown_report(report, dry_run, validation_warnings, mode=mode)
+
+    if validation is not None:
         if validation.ok:
             console.print(
                 f"[green]Validação OK:[/green] {validation.document_count} documentos XHTML/HTML encontrados."
@@ -301,7 +303,6 @@ def _run_translation(
             if resume_store and resume_state:
                 _mark_resume_state_completed(resume_store, resume_state)
         else:
-            _print_validation_warnings(validation.warnings)
             raise typer.Exit(code=1)
 
 
@@ -379,8 +380,8 @@ def _run_preview(
                 on_text_processed=progress_view.text_processed,
             )
 
-    _print_report(report, dry_run=False)
     validation = _validate_with_progress(output_path)
+    _print_report(report, dry_run=False, validation_warnings=validation.warnings)
     if validation.ok:
         console.print(f"[green]Preview salvo em:[/green] {output_path}")
         console.print(
@@ -388,7 +389,6 @@ def _run_preview(
         )
         return
 
-    _print_validation_warnings(validation.warnings)
     raise typer.Exit(code=1)
 
 
@@ -435,7 +435,12 @@ def _print_validation_warnings(warnings: list[str]) -> None:
         console.print(f"  - {warning}")
 
 
-def _print_report(report: TranslationReport, dry_run: bool) -> None:
+def _print_report(
+    report: TranslationReport,
+    dry_run: bool,
+    validation_warnings: list[str] | None = None,
+) -> None:
+    validation_warnings = validation_warnings or []
     table = Table(title="Translation report")
     table.add_column("Metric")
     table.add_column("Value")
@@ -447,10 +452,14 @@ def _print_report(report: TranslationReport, dry_run: bool) -> None:
     table.add_row("Texts translated", str(report.texts_translated))
     table.add_row("Texts from cache", str(report.texts_from_cache))
     table.add_row("Errors", str(len(report.errors)))
+    table.add_row("Validation warnings", str(len(validation_warnings)))
     console.print(table)
 
     for error in report.errors:
         console.print(f"[yellow]Error:[/yellow] {error}")
+
+    if validation_warnings:
+        _print_validation_warnings(validation_warnings)
 
 
 def _print_interrupted_translation(
@@ -762,26 +771,40 @@ def _save_resume_state(store: ResumeStateStore, state: TranslationResumeState) -
         raise typer.Exit(code=1) from exc
 
 
-def _offer_markdown_report(report: TranslationReport, dry_run: bool, mode: UserMode = UserMode.DEVELOPER) -> None:
+def _offer_markdown_report(
+    report: TranslationReport,
+    dry_run: bool,
+    validation_warnings: list[str] | None = None,
+    mode: UserMode = UserMode.DEVELOPER,
+) -> None:
     if mode == UserMode.DEVELOPER:
         return
 
     if not typer.confirm("Save translation report as Markdown?", default=False):
         return
 
-    path = _save_markdown_report(report, dry_run)
+    path = _save_markdown_report(report, dry_run, validation_warnings)
     console.print(f"[green]Report saved to:[/green] {path}")
 
 
-def _save_markdown_report(report: TranslationReport, dry_run: bool) -> Path:
+def _save_markdown_report(
+    report: TranslationReport,
+    dry_run: bool,
+    validation_warnings: list[str] | None = None,
+) -> Path:
     directory = _default_reports_dir()
     directory.mkdir(parents=True, exist_ok=True)
     path = _next_available_report_path(directory, _report_filename_stem(report))
-    path.write_text(_render_markdown_report(report, dry_run), encoding="utf-8")
+    path.write_text(_render_markdown_report(report, dry_run, validation_warnings), encoding="utf-8")
     return path
 
 
-def _render_markdown_report(report: TranslationReport, dry_run: bool) -> str:
+def _render_markdown_report(
+    report: TranslationReport,
+    dry_run: bool,
+    validation_warnings: list[str] | None = None,
+) -> str:
+    validation_warnings = validation_warnings or []
     lines = [
         "# Translation report",
         "",
@@ -793,11 +816,16 @@ def _render_markdown_report(report: TranslationReport, dry_run: bool) -> str:
         f"- Texts translated: {report.texts_translated}",
         f"- Texts from cache: {report.texts_from_cache}",
         f"- Errors: {len(report.errors)}",
+        f"- Validation warnings: {len(validation_warnings)}",
     ]
 
     if report.errors:
         lines.extend(["", "## Errors"])
         lines.extend(f"- {_single_line(error)}" for error in report.errors)
+
+    if validation_warnings:
+        lines.extend(["", "## Validation warnings"])
+        lines.extend(f"- {_single_line(warning)}" for warning in validation_warnings)
 
     return "\n".join(lines) + "\n"
 
