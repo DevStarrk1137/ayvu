@@ -11,8 +11,12 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Cache SQLite para retomar traduções interrompidas e evitar chamadas repetidas.
 - Glossário JSON opcional para padronizar termos técnicos.
 - Nome de saída automático baseado no idioma de destino.
+- Preview traduzido de uma amostra inicial do EPUB.
+- Modo comum guiado e modo desenvolvedor direto.
+- Checagens internas antes de iniciar traduções reais.
 - Modo `dry-run` para simular o processamento sem gerar arquivo.
 - Extração de texto visível para Markdown.
+- Relatório final no terminal e opção de salvar relatório Markdown no modo comum.
 - Validação básica do EPUB gerado.
 
 ## Aviso de Uso
@@ -220,6 +224,9 @@ Durante traduções reais, o Ayvu também grava um estado local da execução em
 necessários para uma retomada futura. Ele não substitui o cache e não é apagado
 automaticamente.
 
+Ao executar `uv run ayvu`, o modo comum procura estados de tradução em andamento
+nessa pasta e oferece retomar uma execução detectada.
+
 ## Testes
 
 ```bash
@@ -253,4 +260,3 @@ ayvu/
 - EPUBs com XHTML malformado podem depender do comportamento do parser.
 - Livros técnicos costumam exigir glossário para manter termos consistentes.
 - A qualidade final depende do servidor de tradução usado.
-inal depende do servidor de tradução usado.

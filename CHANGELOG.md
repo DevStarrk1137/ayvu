@@ -9,8 +9,26 @@ lancadas e secoes versionadas quando uma release for publicada.
 
 ### Adicionado
 
+- Fluxo guiado inicial ao executar `uv run ayvu`.
+- Modo comum e modo desenvolvedor via `--mode`.
+- Preview traduzido com `uv run ayvu --preview livro.epub`.
+- Comando `languages` para listar idiomas retornados pelo LibreTranslate.
+- Preflight antes da traducao real, verificando EPUB, cache, glossario,
+  idiomas e tradutor.
+- Estado local de retomada em `~/Documentos/Livros/Processando`.
+- Relatorio Markdown opcional no modo comum.
+- Tratamento limpo de interrupcao com `Ctrl+C`.
+- Testes com EPUB minimo gerado por codigo.
+- GitHub Actions para rodar `uv run pytest`.
+- Documento de fluxo de issues, branches, pull requests e releases.
 - Arquivos iniciais de manutencao do projeto: `LICENSE`, `CHANGELOG.md` e
   `CONTRIBUTING.md`.
+
+### Atualizado
+
+- README com recursos atuais, retomada pelo modo comum e correcao de texto
+  duplicado.
+- Relatorio tecnico alinhado ao estado atual do codigo, testes, CI e roadmap.
 
 ## 0.0.1 - Inicial
 
