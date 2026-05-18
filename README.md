@@ -175,7 +175,9 @@ uv run ayvu translate livro.epub \
   --glossary glossary.json
 ```
 
-No **Modo Comum**, se a saída já existir, o Ayvu mostra o caminho calculado e pergunta se deve sobrescrever. Para pular a pergunta e sobrescrever direto (comportamento padrão do Modo Desenvolvedor):
+No **Modo Comum**, se a saída já existir, o Ayvu mostra o caminho calculado e permite
+sobrescrever, escolher outro nome ou cancelar sem alterar o arquivo existente. Para pular a
+pergunta e sobrescrever direto:
 
 ```bash
 uv run ayvu translate livro.epub \

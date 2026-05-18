@@ -762,21 +762,106 @@ def test_translate_command_allows_custom_output_path_from_default_prompt(tmp_pat
     assert calls["output_path"] == output_path
 
 
-def test_translate_command_asks_before_overwriting_existing_output_and_cancels(tmp_path):
+def test_translate_command_asks_how_to_handle_existing_output_and_cancels(tmp_path):
     epub_path = tmp_path / "book.epub"
     output_path = tmp_path / "book-pt.epub"
     epub_path.write_bytes(b"not a real epub")
     output_path.write_text("already here", encoding="utf-8")
 
-    result = runner.invoke(app, ["--mode", "common", "translate", str(epub_path), "--output", str(output_path)], input="n\n")
+    result = runner.invoke(app, ["--mode", "common", "translate", str(epub_path), "--output", str(output_path)], input="0\n")
 
     assert result.exit_code == 1
     assert "Output path:" in result.output
     assert str(output_path) in result.output
     assert "Translated EPUB already exists." in result.output
-    assert "Overwrite existing translated EPUB?" in result.output
+    assert "Overwrite existing EPUB" in result.output
+    assert "Choose another name" in result.output
+    assert "Cancel" in result.output
     assert "Canceled:" in result.output
     assert "existing output was not changed." in result.output
+    assert output_path.read_text(encoding="utf-8") == "already here"
+    assert "Traceback" not in result.output
+
+
+def test_translate_command_allows_another_name_when_output_exists(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    renamed_output = tmp_path / "book-custom"
+    processing_dir = tmp_path / "Processando"
+    epub_path.write_bytes(b"fake epub")
+    output_path.write_text("already here", encoding="utf-8")
+    calls: dict[str, Path] = {}
+
+    def fake_translate(_input_path: Path, output_path: Path, **_kwargs: object) -> TranslationReport:
+        calls["output_path"] = output_path
+        return TranslationReport(output_path=output_path, input_path=epub_path, target_language="pt")
+
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+    )
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr(
+        "ayvu.cli.validate_output_epub",
+        lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1),
+    )
+    monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
+
+    result = runner.invoke(
+        app,
+        ["--mode", "common", "translate", str(epub_path), "--output", str(output_path)],
+        input=f"2\n{renamed_output}\n",
+    )
+
+    final_output = renamed_output.with_suffix(".epub")
+    assert result.exit_code == 0
+    assert "Translated EPUB already exists." in result.output
+    assert "Choose another name" in result.output
+    assert "Output EPUB path" in result.output
+    assert "Final output path:" in result.output
+    assert str(final_output) in result.output
+    assert calls["output_path"] == final_output
+    assert output_path.read_text(encoding="utf-8") == "already here"
+
+
+def test_translate_command_rejects_another_existing_output_name(tmp_path):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    other_output = tmp_path / "already-used.epub"
+    epub_path.write_bytes(b"not a real epub")
+    output_path.write_text("already here", encoding="utf-8")
+    other_output.write_text("also here", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["--mode", "common", "translate", str(epub_path), "--output", str(output_path)],
+        input=f"2\n{other_output}\nn\n",
+    )
+
+    assert result.exit_code == 1
+    assert "Output path already exists:" in result.output
+    assert str(other_output) in result.output
+    assert "Choose another output path?" in result.output
+    assert "existing output was not changed." in result.output
+    assert output_path.read_text(encoding="utf-8") == "already here"
+    assert other_output.read_text(encoding="utf-8") == "also here"
+    assert "Traceback" not in result.output
+
+
+def test_translate_command_developer_mode_requires_overwrite_for_existing_output(tmp_path):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    epub_path.write_bytes(b"not a real epub")
+    output_path.write_text("already here", encoding="utf-8")
+
+    result = runner.invoke(app, ["translate", str(epub_path), "--output", str(output_path)])
+
+    assert result.exit_code == 1
+    assert "existing output was not changed." in result.output
+    assert "Use --overwrite to replace it or --output to choose another EPUB path." in result.output
+    assert "Choose an option" not in result.output
     assert output_path.read_text(encoding="utf-8") == "already here"
     assert "Traceback" not in result.output
 
@@ -790,11 +875,11 @@ def test_translate_command_continues_when_existing_output_is_confirmed(tmp_path)
     result = runner.invoke(
         app,
         ["--mode", "common", "translate", str(epub_path), "--output", str(output_path), "--translator", "unknown"],
-        input="y\n",
+        input="1\n",
     )
 
     assert result.exit_code == 1
-    assert "Overwrite existing translated EPUB?" in result.output
+    assert "Overwrite existing EPUB" in result.output
     assert "Não foi possível preparar o tradutor." in result.output
     assert "Use --translator libretranslate." in result.output
     assert "Detalhe técnico:" not in result.output

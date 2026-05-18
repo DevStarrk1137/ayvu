@@ -19,6 +19,7 @@ lancadas e secoes versionadas quando uma release for publicada.
 - Estado local de retomada em `~/Documentos/Livros/Processando`.
 - Relatorio Markdown opcional no modo comum.
 - Tutorial para modo comum, fluxo intermediario e modo desenvolvedor.
+- Escolha de outro nome no modo comum quando o EPUB de saida ja existe.
 - Tratamento limpo de interrupcao com `Ctrl+C`.
 - Testes com EPUB minimo gerado por codigo.
 - GitHub Actions para rodar `uv run pytest`.
