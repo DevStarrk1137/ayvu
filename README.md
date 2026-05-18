@@ -88,6 +88,9 @@ O Ayvu possui dois modos de execução que equilibram facilidade de uso com efic
 - **Modo Comum (common)**: Focado em uma experiência guiada. Oferece sugestões de retomada de traduções interrompidas, convites para gerar previews e solicita confirmações antes de ações importantes (como sobrescrever arquivos). É o modo padrão ao executar apenas `ayvu`.
 - **Modo Desenvolvedor (developer)**: Focado em execução direta e automação. Pula perguntas interativas e assume as configurações padrão ou passadas via argumentos. É o modo padrão ao utilizar subcomandos como `translate` ou `inspect`.
 
+Para um passo a passo dos dois fluxos, leia o
+[`tutorial de modo comum e modo desenvolvedor`](docs/tutorial-modo-comum-e-dev.md).
+
 Você pode forçar um modo específico usando a opção global `--mode`:
 
 ```bash
@@ -227,6 +230,45 @@ automaticamente.
 Ao executar `uv run ayvu`, o modo comum procura estados de tradução em andamento
 nessa pasta e oferece retomar uma execução detectada.
 
+## Configuração
+
+O Ayvu já define um formato inicial para preferências locais. A interface de
+configurações ainda não está pronta, mas o arquivo planejado fica em:
+
+```text
+$XDG_CONFIG_HOME/ayvu/config.json
+```
+
+Quando `XDG_CONFIG_HOME` não estiver definido, o fallback é:
+
+```text
+~/.config/ayvu/config.json
+```
+
+Formato inicial:
+
+```json
+{
+  "version": 1,
+  "default_target_language": "pt",
+  "books_dir": "~/Documentos/Livros",
+  "folders": {
+    "original": "Original",
+    "translated": "Traduzidos",
+    "preview": "Preview",
+    "reports": "Relatorios",
+    "processing": "Processando"
+  },
+  "reader_app": null
+}
+```
+
+A precedência planejada é:
+
+```text
+argumentos da CLI > arquivo de configuração > padrões internos
+```
+
 ## Testes
 
 ```bash
@@ -245,6 +287,9 @@ ao publicar. O passo a passo esta em
 ```text
 ayvu/
 ├── docs/
+│   ├── release-workflow.md
+│   ├── relatorio-tecnico.md
+│   └── tutorial-modo-comum-e-dev.md
 ├── src/
 │   └── ayvu/
 ├── tests/

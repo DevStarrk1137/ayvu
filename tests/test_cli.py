@@ -94,8 +94,8 @@ def test_translate_command_has_clear_error_for_unknown_translator(tmp_path):
     result = runner.invoke(app, ["translate", str(epub_path), "--translator", "unknown", "--dry-run"])
 
     assert result.exit_code == 1
-    assert "Environment check failed:" in result.output
-    assert "Translator check failed:" in result.output
+    assert "Não foi possível preparar o tradutor." in result.output
+    assert "Detalhe técnico:" in result.output
     assert "Unsupported translator:" in result.output
     assert "unknown" in result.output
     assert "Use --translator libretranslate." in result.output
@@ -143,9 +143,9 @@ def test_languages_command_reports_failure_without_traceback(monkeypatch):
     result = runner.invoke(app, ["languages"])
 
     assert result.exit_code == 1
-    assert "Language list failed:" in result.output
+    assert "Não foi possível listar os idiomas." in result.output
     assert "server unavailable" in result.output
-    assert "Start LibreTranslate" in result.output
+    assert "Inicie o LibreTranslate" in result.output
     assert "Traceback" not in result.output
 
 
@@ -178,7 +178,7 @@ def test_root_command_in_developer_mode_skips_guided_prompts(tmp_path, monkeypat
     result = runner.invoke(app, ["--mode", "developer", "--preview", str(epub_path)])
 
     assert "Generate a translation preview?" not in result.output
-    assert "Environment check failed:" in result.output
+    assert "Não foi possível ler o EPUB informado." in result.output
 
 
 def test_translate_command_in_developer_mode_skips_confirmations(tmp_path, monkeypatch):
@@ -196,7 +196,57 @@ def test_translate_command_in_developer_mode_skips_confirmations(tmp_path, monke
     assert result.exit_code == 1
     assert "Default output folder:" not in result.output
     assert "Keep this output location?" not in result.output
-    assert "Environment check failed:" in result.output
+    assert "failed" in result.output
+    assert "next" in result.output
+
+
+def test_common_mode_hides_technical_detail_for_expected_error(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_bytes(b"fake epub")
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            PreflightError(
+                "Não foi possível ler o EPUB informado.",
+                "Confirme que o arquivo é um EPUB válido e legível e tente novamente.",
+                detail="book.epub: invalid zip header",
+            )
+        ),
+    )
+
+    result = runner.invoke(app, ["--mode", "common", "translate", str(epub_path)], input="y\n")
+
+    assert result.exit_code == 1
+    assert "Não foi possível ler o EPUB informado." in result.output
+    assert "Confirme que o arquivo é um EPUB válido e legível e tente novamente." in result.output
+    assert "Detalhe técnico:" not in result.output
+    assert "invalid zip header" not in result.output
+    assert "Traceback" not in result.output
+
+
+def test_developer_mode_shows_technical_detail_for_expected_error(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_bytes(b"fake epub")
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            PreflightError(
+                "Não foi possível ler o EPUB informado.",
+                "Confirme que o arquivo é um EPUB válido e legível e tente novamente.",
+                detail="book.epub: invalid zip header",
+            )
+        ),
+    )
+
+    result = runner.invoke(app, ["--mode", "developer", "translate", str(epub_path)])
+
+    assert result.exit_code == 1
+    assert "Não foi possível ler o EPUB informado." in result.output
+    assert "Detalhe técnico:" in result.output
+    assert "invalid zip header" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_root_command_resumes_detected_translation_when_confirmed(tmp_path, monkeypatch):
@@ -266,9 +316,9 @@ def test_root_command_reports_resume_failure_without_traceback(tmp_path, monkeyp
 
     assert result.exit_code == 1
     assert "Continue detected translation?" in result.output
-    assert "Environment check failed:" in result.output
     assert "EPUB check failed: missing file" in result.output
-    assert "Could not resume detected translation." in result.output
+    assert "Choose a valid EPUB." in result.output
+    assert "Não foi possível retomar a tradução detectada." in result.output
     assert "Traceback" not in result.output
 
 
@@ -519,7 +569,6 @@ def test_translate_command_stops_when_preflight_fails(tmp_path, monkeypatch):
     assert result.exit_code == 1
     assert "Default output folder:" in result.output
     assert "Keep this output location?" in result.output
-    assert "Environment check failed:" in result.output
     assert "Cache check failed: no write permission" in result.output
     assert "Choose a writable cache path." in result.output
     assert "Traceback" not in result.output
@@ -637,10 +686,10 @@ def test_translate_command_continues_when_existing_output_is_confirmed(tmp_path)
 
     assert result.exit_code == 1
     assert "Overwrite existing translated EPUB?" in result.output
-    assert "Environment check failed:" in result.output
-    assert "Translator check failed:" in result.output
-    assert "Unsupported translator:" in result.output
-    assert "unknown" in result.output
+    assert "Não foi possível preparar o tradutor." in result.output
+    assert "Use --translator libretranslate." in result.output
+    assert "Detalhe técnico:" not in result.output
+    assert "Unsupported translator:" not in result.output
     assert output_path.read_text(encoding="utf-8") == "already here"
     assert "Traceback" not in result.output
 
@@ -876,3 +925,28 @@ def _resume_state(tmp_path: Path) -> TranslationResumeState:
         timeout=30.0,
         retries=2,
     )
+
+
+def test_inspect_command_reports_invalid_epub_without_traceback(tmp_path):
+    epub_path = tmp_path / "bad.epub"
+    epub_path.write_bytes(b"not a real epub")
+
+    result = runner.invoke(app, ["inspect", str(epub_path)])
+
+    assert result.exit_code == 1
+    assert "Não foi possível ler o EPUB informado." in result.output
+    assert "Confirme que o arquivo é um EPUB válido e legível" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_extract_command_reports_invalid_epub_without_traceback(tmp_path):
+    epub_path = tmp_path / "bad.epub"
+    epub_path.write_bytes(b"not a real epub")
+    output_dir = tmp_path / "out"
+
+    result = runner.invoke(app, ["extract", str(epub_path), "--output", str(output_dir)])
+
+    assert result.exit_code == 1
+    assert "Não foi possível ler o EPUB informado." in result.output
+    assert "Confirme que o arquivo é um EPUB válido e legível" in result.output
+    assert "Traceback" not in result.output
