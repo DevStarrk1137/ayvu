@@ -20,7 +20,7 @@ arquivo.epub
 -> preservar HTML, CSS, imagens, links, sumário e nomes internos
 -> usar cache SQLite para reaproveitar traduções
 -> copiar o EPUB original substituindo somente documentos traduzidos
--> validar o EPUB gerado
+-> validar o EPUB gerado com progresso e avisos
 ```
 
 ## 2. Estado atual
@@ -42,7 +42,7 @@ O Ayvu já possui:
 - retomada local de traduções interrompidas;
 - comando para listar idiomas do LibreTranslate;
 - formato inicial de configuração local;
-- validação básica do EPUB gerado;
+- validação do EPUB gerado com barra de progresso e avisos de capítulo vazio, link interno quebrado e imagem ausente;
 - testes automatizados e CI no GitHub Actions.
 
 Ainda não possui:
@@ -241,7 +241,7 @@ uv run ayvu --mode common translate livro.epub
 
 `src/ayvu/config.py` define o formato inicial de configuração JSON, o caminho padrão do arquivo, leitura/gravação e resolução das pastas locais do Ayvu.
 
-`src/ayvu/validation.py` faz validação básica do EPUB gerado.
+`src/ayvu/validation.py` valida o EPUB gerado: confirma abertura e documentos XHTML/HTML e avisa sobre capítulos vazios, links internos quebrados e imagens referenciadas ausentes, com callback de progresso opcional. Qualquer aviso faz a execução falhar com código 1.
 
 ## 9. Configuração local
 
@@ -398,7 +398,10 @@ Ao final da tradução, o Ayvu mostra um relatório no terminal com:
 - textos traduzidos;
 - textos reaproveitados do cache;
 - textos pulados no dry-run;
-- erros.
+- erros;
+- avisos de validação (capítulo vazio, link interno quebrado, imagem ausente).
+
+A validação roda antes do relatório final, então os avisos aparecem na tabela do terminal e, no modo comum, também no relatório Markdown. Qualquer aviso faz a execução terminar com código 1.
 
 No modo comum, o Ayvu também oferece salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`, sem sobrescrever relatórios anteriores.
 
