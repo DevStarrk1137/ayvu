@@ -12,9 +12,11 @@ from .translator import Translator, TranslatorError, create_translator
 
 
 class PreflightError(RuntimeError):
-    def __init__(self, message: str, next_step: str) -> None:
-        super().__init__(message)
+    def __init__(self, summary: str, next_step: str, detail: str = "") -> None:
+        super().__init__(summary)
+        self.summary = summary
         self.next_step = next_step
+        self.detail = detail
 
 
 @dataclass(frozen=True)
@@ -49,8 +51,9 @@ def _check_language_pair(language_pair: LanguagePair) -> None:
         language_pair.validate_for_translation()
     except LanguagePairError as exc:
         raise PreflightError(
-            f"Language pair check failed: {exc}.",
-            "Use non-empty language codes with --source and --target, for example --source en --target pt.",
+            "O par de idiomas informado não é válido.",
+            "Use códigos de idioma não vazios em --source e --target, por exemplo --source en --target pt.",
+            detail=str(exc),
         ) from exc
 
 
@@ -59,8 +62,9 @@ def _load_checked_glossary(glossary_path: Path | None) -> Glossary:
         return load_glossary(glossary_path)
     except GlossaryError as exc:
         raise PreflightError(
-            f"Glossary check failed: {exc}",
-            "Create the file, pass the correct path, or remove --glossary to run without one.",
+            "Não foi possível carregar o glossário.",
+            "Crie o arquivo, informe o caminho correto, ou remova --glossary para rodar sem glossário.",
+            detail=str(exc),
         ) from exc
 
 
@@ -69,8 +73,9 @@ def _create_checked_translator(name: str, url: str, timeout: float, retries: int
         return create_translator(name, url=url, timeout=timeout, retries=retries)
     except TranslatorError as exc:
         raise PreflightError(
-            f"Translator check failed: {exc}",
+            "Não foi possível preparar o tradutor.",
             "Use --translator libretranslate.",
+            detail=str(exc),
         ) from exc
 
 
@@ -80,8 +85,9 @@ def _check_cache(cache_path: Path) -> None:
             cache.verify_writable()
     except (OSError, sqlite3.Error) as exc:
         raise PreflightError(
-            f"Cache check failed: could not create or write cache at {cache_path}: {exc}",
-            "Choose a writable cache path with --cache or fix permissions for the cache directory.",
+            "Não foi possível criar ou escrever o cache.",
+            "Escolha um caminho de cache com permissão de escrita usando --cache, ou ajuste as permissões da pasta do cache.",
+            detail=f"Cache em {cache_path}: {exc}",
         ) from exc
 
 
@@ -90,8 +96,9 @@ def _check_epub(epub_path: Path) -> None:
         inspect_epub(epub_path)
     except Exception as exc:
         raise PreflightError(
-            f"EPUB check failed: could not read {epub_path}: {exc}",
-            "Confirm the file is a valid readable EPUB and try again.",
+            "Não foi possível ler o EPUB informado.",
+            "Confirme que o arquivo é um EPUB válido e legível e tente novamente.",
+            detail=f"{epub_path}: {exc}",
         ) from exc
 
 
@@ -100,6 +107,7 @@ def _check_translator(translator: Translator, language_pair: LanguagePair, url: 
         translator.translate("Hello world", language_pair.source, language_pair.target)
     except Exception as exc:
         raise PreflightError(
-            f"Translator check failed: {exc}",
-            f"Start LibreTranslate at {url}, check --url, and confirm the language pair is available.",
+            "O tradutor não respondeu.",
+            f"Inicie o LibreTranslate em {url}, verifique --url e confirme que o par de idiomas está disponível.",
+            detail=str(exc),
         ) from exc

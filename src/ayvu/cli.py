@@ -89,9 +89,17 @@ def main(
 
 
 @app.command()
-def inspect(epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True)) -> None:
+def inspect(
+    ctx: typer.Context,
+    epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
+) -> None:
     """Show basic information about an EPUB."""
-    info = inspect_epub(epub_path)
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
+    try:
+        info = inspect_epub(epub_path)
+    except Exception as exc:
+        _print_epub_read_error(str(exc), mode)
+        raise typer.Exit(code=1) from exc
     table = Table(title="EPUB information")
     table.add_column("Field")
     table.add_column("Value")
@@ -106,6 +114,7 @@ def inspect(epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, r
 
 @app.command("test-translator")
 def test_translator(
+    ctx: typer.Context,
     url: str = typer.Option(DEFAULT_TRANSLATOR_URL, "--url", help="LibreTranslate base URL or /translate endpoint."),
     source: str = typer.Option(DEFAULT_SOURCE_LANGUAGE, "--source"),
     target: str = typer.Option(DEFAULT_TARGET_LANGUAGE, "--target"),
@@ -113,28 +122,40 @@ def test_translator(
     retries: int = typer.Option(1, "--retries"),
 ) -> None:
     """Test connectivity with the local translator."""
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
     translator = LibreTranslateTranslator(url=url, timeout=timeout, retries=retries)
     try:
         translated = translator.translate("Hello world", source, target)
     except TranslatorError as exc:
-        console.print(f"[red]Translator test failed:[/red] {exc}")
+        _print_expected_error(
+            "O teste do tradutor falhou.",
+            "Inicie o LibreTranslate, verifique --url e tente novamente.",
+            mode,
+            detail=str(exc),
+        )
         raise typer.Exit(code=1) from exc
     console.print(f"[green]Translator OK:[/green] Hello world -> {translated}")
 
 
 @app.command("languages")
 def languages(
+    ctx: typer.Context,
     url: str = typer.Option(DEFAULT_TRANSLATOR_URL, "--url", help="LibreTranslate base URL or /translate endpoint."),
     timeout: float = typer.Option(10.0, "--timeout"),
     retries: int = typer.Option(1, "--retries"),
 ) -> None:
     """List languages reported by the local LibreTranslate server."""
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
     translator = LibreTranslateTranslator(url=url, timeout=timeout, retries=retries)
     try:
         available_languages = translator.list_languages()
     except TranslatorError as exc:
-        console.print(f"[red]Language list failed:[/red] {exc}")
-        console.print("Start LibreTranslate, check --url, and try again.")
+        _print_expected_error(
+            "Não foi possível listar os idiomas.",
+            "Inicie o LibreTranslate, verifique --url e tente novamente.",
+            mode,
+            detail=str(exc),
+        )
         raise typer.Exit(code=1) from exc
 
     _print_languages(available_languages)
@@ -181,6 +202,22 @@ def translate(
         retries=retries,
         chunk_limit=chunk_limit,
         mode=mode,
+    )
+
+
+def _print_expected_error(summary: str, next_step: str, mode: UserMode, detail: str = "") -> None:
+    console.print(f"[red]{summary}[/red]")
+    if mode == UserMode.DEVELOPER and detail:
+        console.print(f"[dim]Detalhe técnico: {detail}[/dim]")
+    console.print(next_step)
+
+
+def _print_epub_read_error(detail: str, mode: UserMode) -> None:
+    _print_expected_error(
+        "Não foi possível ler o EPUB informado.",
+        "Confirme que o arquivo é um EPUB válido e legível e tente novamente.",
+        mode,
+        detail=detail,
     )
 
 
@@ -236,8 +273,7 @@ def _run_translation(
             dry_run=dry_run,
         )
     except PreflightError as exc:
-        console.print(f"[red]Environment check failed:[/red] {exc}")
-        console.print(exc.next_step)
+        _print_expected_error(exc.summary, exc.next_step, mode, detail=exc.detail)
         raise typer.Exit(code=1) from exc
 
     resume_store: ResumeStateStore | None = None
@@ -352,8 +388,7 @@ def _run_preview(
             dry_run=False,
         )
     except PreflightError as exc:
-        console.print(f"[red]Environment check failed:[/red] {exc}")
-        console.print(exc.next_step)
+        _print_expected_error(exc.summary, exc.next_step, mode, detail=exc.detail)
         raise typer.Exit(code=1) from exc
 
     with Progress(
@@ -392,16 +427,22 @@ def _run_preview(
 
 @app.command()
 def extract(
+    ctx: typer.Context,
     epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
     output: Path = typer.Option(..., "--output", "-o", help="Directory where Markdown files will be written."),
     overwrite: bool = typer.Option(False, "--overwrite", help="Allow writing into an existing non-empty directory."),
 ) -> None:
     """Extract visible text from EPUB documents to Markdown files without translating."""
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
     if output.exists() and any(output.iterdir()) and not overwrite:
         console.print(f"[red]Output directory is not empty:[/red] {output}")
         console.print("Use --overwrite to write into it.")
         raise typer.Exit(code=1)
-    written = extract_markdown(epub_path, output)
+    try:
+        written = extract_markdown(epub_path, output)
+    except Exception as exc:
+        _print_epub_read_error(str(exc), mode)
+        raise typer.Exit(code=1) from exc
     console.print(f"[green]Extracted {len(written)} Markdown files to[/green] {output}")
 
 
@@ -655,7 +696,7 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
         )
     except typer.Exit:
         console.print(
-            "Could not resume detected translation. Check the message above and restart the translation if needed."
+            "Não foi possível retomar a tradução detectada. Verifique a mensagem acima e reinicie a tradução se necessário."
         )
         raise
 

@@ -86,8 +86,8 @@ def test_preflight_rejects_blank_language_pair(tmp_path):
             dry_run=True,
         )
 
-    assert "Language pair check failed" in str(error.value)
-    assert "--source and --target" in error.value.next_step
+    assert error.value.summary == "O par de idiomas informado não é válido."
+    assert "--source e --target" in error.value.next_step
 
 
 def test_preflight_reports_translator_probe_failure(monkeypatch, tmp_path):
@@ -107,8 +107,9 @@ def test_preflight_reports_translator_probe_failure(monkeypatch, tmp_path):
             dry_run=False,
         )
 
-    assert "Translator check failed" in str(error.value)
-    assert "language pair is available" in error.value.next_step
+    assert error.value.summary == "O tradutor não respondeu."
+    assert "language pair is not available" in error.value.detail
+    assert "par de idiomas está disponível" in error.value.next_step
 
 
 def test_preflight_reports_epub_failure(monkeypatch, tmp_path):
@@ -128,5 +129,6 @@ def test_preflight_reports_epub_failure(monkeypatch, tmp_path):
             dry_run=False,
         )
 
-    assert "EPUB check failed" in str(error.value)
-    assert "valid readable EPUB" in error.value.next_step
+    assert error.value.summary == "Não foi possível ler o EPUB informado."
+    assert "bad epub" in error.value.detail
+    assert "EPUB válido e legível" in error.value.next_step
