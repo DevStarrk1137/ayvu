@@ -293,14 +293,15 @@ def _run_translation(
     _offer_markdown_report(report, dry_run, mode=mode)
 
     if not dry_run:
-        validation = validate_output_epub(output_path)
+        validation = _validate_with_progress(output_path)
         if validation.ok:
-            console.print(f"[green]Validation OK:[/green] {validation.document_count} XHTML/HTML documents found.")
+            console.print(
+                f"[green]Validação OK:[/green] {validation.document_count} documentos XHTML/HTML encontrados."
+            )
             if resume_store and resume_state:
                 _mark_resume_state_completed(resume_store, resume_state)
         else:
-            for warning in validation.warnings:
-                console.print(f"[yellow]Warning:[/yellow] {warning}")
+            _print_validation_warnings(validation.warnings)
             raise typer.Exit(code=1)
 
 
@@ -379,14 +380,15 @@ def _run_preview(
             )
 
     _print_report(report, dry_run=False)
-    validation = validate_output_epub(output_path)
+    validation = _validate_with_progress(output_path)
     if validation.ok:
-        console.print(f"[green]Preview saved to:[/green] {output_path}")
-        console.print(f"[green]Validation OK:[/green] {validation.document_count} XHTML/HTML documents found.")
+        console.print(f"[green]Preview salvo em:[/green] {output_path}")
+        console.print(
+            f"[green]Validação OK:[/green] {validation.document_count} documentos XHTML/HTML encontrados."
+        )
         return
 
-    for warning in validation.warnings:
-        console.print(f"[yellow]Warning:[/yellow] {warning}")
+    _print_validation_warnings(validation.warnings)
     raise typer.Exit(code=1)
 
 
@@ -403,6 +405,34 @@ def extract(
         raise typer.Exit(code=1)
     written = extract_markdown(epub_path, output)
     console.print(f"[green]Extracted {len(written)} Markdown files to[/green] {output}")
+
+
+def _validate_with_progress(output_path: Path) -> ValidationResult:
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Validando EPUB", total=None)
+
+        def on_progress(index: int, total: int, _name: str) -> None:
+            progress.update(
+                task,
+                total=total,
+                completed=index,
+                description=f"Validando EPUB {index}/{total}",
+            )
+
+        return validate_output_epub(output_path, on_progress=on_progress)
+
+
+def _print_validation_warnings(warnings: list[str]) -> None:
+    console.print("[yellow]Avisos de validação:[/yellow]")
+    for warning in warnings:
+        console.print(f"  - {warning}")
 
 
 def _print_report(report: TranslationReport, dry_run: bool) -> None:

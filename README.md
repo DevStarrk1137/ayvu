@@ -17,7 +17,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Modo `dry-run` para simular o processamento sem gerar arquivo.
 - Extração de texto visível para Markdown.
 - Relatório final no terminal e opção de salvar relatório Markdown no modo comum.
-- Validação básica do EPUB gerado.
+- Validação do EPUB gerado com barra de progresso, avisando sobre capítulos vazios, links internos quebrados e imagens referenciadas ausentes.
 
 ## Aviso de Uso
 
