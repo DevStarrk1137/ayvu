@@ -26,13 +26,12 @@ env/
 *-extraido/
 livro-extraido/
 
-# Local configuration and private glossary
+# Local configuration and private files
 .codex
 glossary.json
-AGENTS.md
-AGENTS-Geral.md
-GEMINI.md
+*AGENTS*.md
+GEMINI*.md
 .github/pull_request_template.md
 
-# Personal Ayvu workspace
-.ayvu-pessoal/
+# Private project workspaces
+.ayvu-*/

@@ -20,9 +20,10 @@ Resumo:
 1. Selecione ou crie uma issue para a tarefa.
 2. Crie uma branch curta e descritiva a partir da `main`.
 3. Faca uma mudanca pequena e coerente com a issue.
-4. Abra um pull request para merge na `main`.
-5. Registre a validacao executada no pull request.
-6. Relacione o PR com a issue usando `Refs #N` ou `Closes #N`.
+4. Rode a validacao adequada.
+5. Abra um pull request para merge na `main`.
+6. Registre a validacao executada no pull request.
+7. Relacione o PR com a issue usando `Refs #N` ou `Closes #N`.
 
 Use nomes de branch com prefixo e descricao curta em kebab-case:
 
@@ -54,6 +55,8 @@ Comandos uteis:
 uv run ayvu --help
 uv run ayvu inspect livro.epub
 uv run ayvu test-translator --url http://localhost:5000
+uv run ayvu languages --url http://localhost:5000
+uv run ayvu --preview livro.epub
 ```
 
 ## Regras de Contribuicao
@@ -68,6 +71,8 @@ uv run ayvu test-translator --url http://localhost:5000
   uso pessoal.
 - Atualize `README.md` ou `docs/` quando mudar comportamento de usuario,
   comandos, flags, cache, glossario ou formato de saida.
+- Mantenha mudancas de documentacao e codigo separadas quando isso facilitar
+  revisao.
 
 ## Pull Requests
 
@@ -90,3 +95,7 @@ Para mudancas apenas de documentacao, rode pelo menos:
 ```bash
 git diff --check
 ```
+
+Se a mudanca alterar fluxo de usuario, flags, cache, glossario, retomada,
+validacao ou formato de saida, confirme que a documentacao publica tambem foi
+atualizada.

@@ -1,239 +1,276 @@
-# Relatório técnico: ayvu
+# Relatório técnico: Ayvu
 
-Este documento resume o que foi construído, quais decisões técnicas foram tomadas, quais bugs apareceram durante o uso real e como continuar o projeto depois.
+Este documento registra o estado técnico atual do Ayvu, as decisões principais de arquitetura, os fluxos implementados e os próximos riscos conhecidos.
+
+Última atualização: 2026-05-15.
 
 ## 1. Objetivo do projeto
 
-O objetivo foi criar uma ferramenta CLI em Python chamada `ayvu` para traduzir arquivos EPUB locais usando um tradutor HTTP local, inicialmente compatível com LibreTranslate.
+O Ayvu é uma CLI Python para traduzir arquivos EPUB locais usando um tradutor HTTP local compatível com LibreTranslate.
 
-A ferramenta foi pensada para uso pessoal e estudo. Ela não remove DRM, não baixa livros e não distribui conteúdo protegido. O EPUB original nunca é modificado.
+A ferramenta foi pensada para uso pessoal, estudo e acessibilidade. Ela não remove DRM, não baixa livros e não distribui conteúdo protegido. O EPUB original nunca é modificado; a saída é sempre um novo arquivo `.epub`.
 
-O fluxo desejado:
+Fluxo principal:
 
 ```text
-arquivo.epub em inglês
--> extrair XHTML/HTML internos
--> traduzir só textos visíveis
--> preservar HTML, CSS, imagens, links e estrutura
--> salvar novo EPUB traduzido
--> usar cache SQLite para retomar depois
+arquivo.epub
+-> abrir EPUB sem alterar o original
+-> localizar documentos XHTML/HTML internos
+-> traduzir apenas textos visíveis ao leitor
+-> preservar HTML, CSS, imagens, links, sumário e nomes internos
+-> usar cache SQLite para reaproveitar traduções
+-> copiar o EPUB original substituindo somente documentos traduzidos
+-> validar o EPUB gerado
 ```
 
-## 2. Estrutura criada
+## 2. Estado atual
 
-Estrutura principal do projeto:
+O Ayvu já possui:
+
+- tradução de EPUB com preservação da estrutura interna;
+- inspeção de EPUB;
+- extração de texto visível para Markdown;
+- preview traduzido de uma amostra inicial do livro;
+- cache SQLite;
+- glossário JSON simples;
+- chunking de textos longos;
+- progresso visual com `rich`;
+- preflight antes de traduções reais;
+- relatório final no terminal;
+- opção de salvar relatório Markdown no modo comum;
+- modo comum guiado e modo desenvolvedor direto;
+- retomada local de traduções interrompidas;
+- comando para listar idiomas do LibreTranslate;
+- validação básica do EPUB gerado;
+- testes automatizados e CI no GitHub Actions.
+
+Ainda não possui:
+
+- arquivo de configuração persistente do Ayvu;
+- biblioteca completa de livros;
+- gerenciamento automático do LibreTranslate;
+- tradução por bloco preservando tags internas;
+- validação EPUB avançada com EPUBCheck;
+- backends alternativos além de LibreTranslate;
+- interface gráfica ou web.
+
+## 3. Estrutura do projeto
+
+Estrutura versionável principal:
 
 ```text
 ayvu/
-├── README.md
-├── glossary.example.json
-├── pyproject.toml
+├── .github/
+│   └── workflows/
+│       └── tests.yml
 ├── docs/
-│   └── relatorio-tecnico.md
+│   ├── relatorio-tecnico.md
+│   └── release-workflow.md
 ├── src/
 │   └── ayvu/
 │       ├── __init__.py
 │       ├── cache.py
 │       ├── chunking.py
 │       ├── cli.py
+│       ├── cli_progress.py
+│       ├── domain.py
 │       ├── epub_io.py
 │       ├── glossary.py
 │       ├── html_translate.py
+│       ├── preflight.py
+│       ├── resume.py
 │       ├── translator.py
 │       └── validation.py
-└── tests/
-    ├── test_cache.py
-    ├── test_chunking.py
-    ├── test_epub_io.py
-    ├── test_glossary.py
-    └── test_html_translate.py
+├── tests/
+│   ├── conftest.py
+│   ├── test_cache.py
+│   ├── test_chunking.py
+│   ├── test_cli.py
+│   ├── test_cli_progress.py
+│   ├── test_epub_io.py
+│   ├── test_glossary.py
+│   ├── test_html_translate.py
+│   ├── test_preflight.py
+│   ├── test_resume.py
+│   ├── test_translator.py
+│   └── test_validation.py
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── LICENSE
+├── README.md
+├── glossary.example.json
+├── pyproject.toml
+└── uv.lock
 ```
 
-## 3. Stack usada
+Arquivos locais e privados ficam fora do Git, incluindo EPUBs, PDFs, caches SQLite locais e glossários pessoais.
+
+## 4. Stack
 
 Dependências principais:
 
-- Python 3.11+
-- `ebooklib`
-- `beautifulsoup4`
-- `lxml`
-- `requests`
-- `typer`
-- `rich`
-- `sqlite3` da biblioteca padrão
-- `pytest`
+- Python 3.11+;
+- `typer` para CLI;
+- `rich` para saída de terminal;
+- `ebooklib` para inspeção de EPUB;
+- `beautifulsoup4` e `lxml` para HTML/XML;
+- `requests` para HTTP;
+- `sqlite3` da biblioteca padrão para cache;
+- `pytest` para testes.
 
-O pacote é instalável via `pyproject.toml` e expõe o comando:
+O gerenciador preferido do projeto é `uv`.
+
+## 5. Instalação e validação local
+
+Instalar dependências de desenvolvimento:
 
 ```bash
-ayvu
+uv sync --extra dev
 ```
 
-## 4. Comandos implementados
+Ver ajuda da CLI:
+
+```bash
+uv run ayvu --help
+```
+
+Rodar testes:
+
+```bash
+uv run pytest
+```
+
+Para mudanças apenas de documentação, a validação mínima é:
+
+```bash
+git diff --check
+```
+
+## 6. Comandos implementados
 
 Inspecionar um EPUB:
 
 ```bash
-ayvu inspect game.epub
+uv run ayvu inspect livro.epub
 ```
 
 Testar o LibreTranslate local:
 
 ```bash
-ayvu test-translator --url http://localhost:5000
+uv run ayvu test-translator --url http://localhost:5000
+```
+
+Listar idiomas disponíveis no LibreTranslate:
+
+```bash
+uv run ayvu languages --url http://localhost:5000
+```
+
+Traduzir um EPUB:
+
+```bash
+uv run ayvu translate livro.epub \
+  --source en \
+  --target pt \
+  --translator libretranslate \
+  --url http://localhost:5000 \
+  --cache .cache/traducoes.sqlite
 ```
 
 Gerar preview traduzido:
 
 ```bash
-ayvu --preview game.epub
+uv run ayvu --preview livro.epub
 ```
 
-O preview traduz uma amostra inicial de documentos internos do EPUB e salva o
-resultado em `~/Documentos/Livros/Preview/<nome>-preview.epub`.
-
-Traduzir:
+Extrair texto visível para Markdown:
 
 ```bash
-ayvu translate game.epub \
-  --output game-ptbr.epub \
-  --source en \
-  --target pt \
-  --translator libretranslate \
-  --url http://localhost:5000 \
-  --cache .cache/traducoes.sqlite \
-  --glossary glossary.json
+uv run ayvu extract livro.epub --output livro-extraido/
 ```
 
-Quando `--output` nao e informado em uma traducao real, o Ayvu mostra a pasta
-padrao `~/Documentos/Livros/Traduzidos`, o nome calculado do EPUB traduzido e
-pergunta se o usuario deseja manter esse local antes de iniciar a traducao.
-
-Rodar em modo dry-run:
+Executar o menu guiado:
 
 ```bash
-ayvu translate game.epub \
-  --output teste.epub \
-  --dry-run
+uv run ayvu
 ```
 
-Extrair texto para Markdown:
+O modo guiado permite iniciar tradução, gerar preview, ver ajuda e acessar placeholders de biblioteca e configurações. Também pode detectar estados locais de tradução interrompida.
+
+## 7. Modos de uso
+
+O Ayvu separa dois perfis:
+
+- `common`: modo comum, guiado, com confirmações e perguntas antes de ações importantes.
+- `developer`: modo direto, adequado para automação e uso explícito por subcomandos.
+
+Ao executar apenas `uv run ayvu`, o modo comum abre o menu guiado. Ao usar subcomandos como `translate`, `inspect` e `extract`, o comportamento padrão é mais direto.
+
+A opção global `--mode` permite forçar o modo:
 
 ```bash
-ayvu extract game.epub --output livro-extraido/
+uv run ayvu --mode common translate livro.epub
 ```
 
-Sobrescrever arquivo de saída existente:
+## 8. Responsabilidades dos módulos
 
-```bash
-ayvu translate game.epub \
-  --output game-ptbr.epub \
-  --overwrite
-```
+`src/ayvu/cli.py` concentra comandos Typer, argumentos, prompts, confirmações, progresso, relatórios e orquestração. Não deve receber regra pesada de EPUB, HTML ou HTTP.
 
-## 5. Como instalar e testar
+`src/ayvu/domain.py` guarda tipos de domínio compartilhados, como `LanguagePair`, `OutputPlan`, `TranslationOptions` e `UserMode`.
 
-Dentro do diretório do projeto:
+`src/ayvu/epub_io.py` cuida de leitura, inspeção, extração, tradução estrutural e escrita do EPUB final.
 
-```bash
-cd ayvu
+`src/ayvu/html_translate.py` traduz HTML/XHTML em nível de nó de texto visível, preservando tags e ignorando conteúdo que não deve ser traduzido.
 
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[dev]"
+`src/ayvu/translator.py` define o contrato `Translator` e o backend `LibreTranslateTranslator`.
 
-pytest
-```
+`src/ayvu/cache.py` persiste traduções em SQLite usando idioma de origem, idioma de destino e hash do texto original.
 
-Estado atual dos testes após as correções:
+`src/ayvu/glossary.py` lê e aplica glossário JSON simples.
+
+`src/ayvu/chunking.py` divide textos longos preservando ordem e evitando cortar palavras quando possível.
+
+`src/ayvu/preflight.py` valida idioma, glossário, cache, EPUB e tradutor antes da tradução real.
+
+`src/ayvu/resume.py` registra e lê estados locais de retomada em `~/Documentos/Livros/Processando`.
+
+`src/ayvu/cli_progress.py` adapta callbacks de tradução para `rich.Progress` e mantém contadores de textos.
+
+`src/ayvu/validation.py` faz validação básica do EPUB gerado.
+
+## 9. Pipeline de EPUB
+
+A decisão mais importante do pipeline é não reconstruir o EPUB inteiro com `ebooklib.write_epub()`.
+
+O fluxo atual é conservador:
 
 ```text
-15 passed
+abrir EPUB original como ZIP
+-> localizar documentos XHTML/HTML com ebooklib e caminhos internos reais
+-> traduzir somente os documentos elegíveis
+-> copiar todas as entradas originais para o novo EPUB
+-> substituir apenas os documentos traduzidos
+-> manter mimetype sem compressão
 ```
 
-## 6. Tradutor local
+Essa abordagem preserva:
 
-O tradutor foi abstraído por uma interface:
+- `mimetype`;
+- `content.opf`;
+- `toc.ncx` e arquivos de navegação;
+- CSS;
+- imagens;
+- links internos;
+- nomes de arquivos internos;
+- entradas não modificadas do ZIP.
 
-```python
-class Translator:
-    def translate(self, text: str, source: str, target: str) -> str:
-        ...
-```
+## 10. Tradução de HTML
 
-A implementação inicial é `LibreTranslateTranslator`.
-
-Endpoint padrão:
+A regra principal é:
 
 ```text
-http://localhost:5000/translate
-```
-
-Payload enviado:
-
-```json
-{
-  "q": "text",
-  "source": "en",
-  "target": "pt",
-  "format": "text"
-}
-```
-
-Resposta esperada:
-
-```json
-{
-  "translatedText": "texto traduzido"
-}
-```
-
-Rodar LibreTranslate via Docker:
-
-```bash
-docker run -it -p 5000:5000 libretranslate/libretranslate
-```
-
-## 7. Cache SQLite
-
-O cache fica em SQLite e permite retomar traduções interrompidas.
-
-Tabela:
-
-```sql
-CREATE TABLE IF NOT EXISTS translations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_lang TEXT NOT NULL,
-    target_lang TEXT NOT NULL,
-    original_text_hash TEXT NOT NULL,
-    original_text TEXT NOT NULL,
-    translated_text TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source_lang, target_lang, original_text_hash)
-);
-```
-
-Funcionamento:
-
-```text
-texto original
--> calcula hash SHA-256
--> procura no cache por source/target/hash
--> se existir, usa tradução salva
--> se não existir, chama tradutor local
--> salva a tradução no cache
-```
-
-Isso foi importante durante o uso real, porque o primeiro EPUB tinha milhares de trechos. Quando o processo é interrompido ou falha, a execução seguinte reaproveita o que já foi salvo.
-
-No caso testado, o cache chegou a ter mais de 5000 entradas `en -> pt`.
-
-## 8. Tradução de HTML
-
-A regra principal foi:
-
-```text
-Não mandar HTML inteiro para o tradutor.
+Não achatar HTML.
+Não usar get_text() no fluxo de tradução.
 Traduzir somente nós de texto visíveis.
 ```
 
@@ -243,312 +280,7 @@ Tags ignoradas:
 script, style, code, pre, kbd, samp, svg, math
 ```
 
-Também foi corrigido um caso importante: a ferramenta não deve traduzir `DOCTYPE`, declarações XML, comentários ou instruções de processamento.
-
-Exemplo:
-
-Entrada:
-
-```html
-<p class="calibre1">Any programming book with <em>Patterns</em> in its name.</p>
-```
-
-Saída esperada:
-
-```html
-<p class="calibre1">Qualquer livro de programação com <em>Patterns</em> no nome.</p>
-```
-
-A tag `<em>` continua existindo. O texto dentro dela pode ser traduzido ou mantido dependendo do tradutor/cache/glossário.
-
-## 9. Glossário
-
-Foi adicionado `glossary.example.json`:
-
-```json
-{
-  "Game Loop": "loop de jogo",
-  "Design Pattern": "padrão de projeto",
-  "Observer": "Observer",
-  "Command": "Command",
-  "State": "State",
-  "Singleton": "Singleton",
-  "Object Pool": "pool de objetos"
-}
-```
-
-O glossário serve para controlar termos técnicos. Ele é aplicado depois da tradução. Exemplo:
-
-```text
-Game Loop -> loop de jogo
-Observer -> Observer
-Command -> Command
-```
-
-Se não quiser usar glossário, basta remover a opção:
-
-```bash
---glossary glossary.json
-```
-
-Também foi melhorado o erro quando o arquivo de glossário não existe. Antes aparecia traceback. Agora a CLI mostra:
-
-```text
-Glossary error: Glossary file not found: glossary.json
-Create the file, pass the correct path, or remove --glossary to run without one.
-```
-
-## 10. Chunking
-
-Textos grandes são divididos em blocos menores antes de enviar ao tradutor.
-
-Regra atual:
-
-```text
-limite padrão: 3000 caracteres
-tentativa de dividir por parágrafos
-depois por frases
-por fim por palavras
-```
-
-Isso evita mandar textos enormes para o LibreTranslate e reduz chance de timeout.
-
-## 11. Progresso visual
-
-No primeiro teste real, a ferramenta parecia travada porque ficava silenciosa durante a tradução.
-
-Foi adicionado progresso com `rich`:
-
-```text
-Chapters 176/176: titlepage.xhtml
-Texts 6170 | new 0 | cache 6011 | errors 159
-```
-
-Isso resolveu a sensação de travamento e deixou claro que o processo estava trabalhando.
-
-## 12. Bug crítico: EPUB com tela branca
-
-Sintoma:
-
-```text
-O EPUB final abria no leitor, mas mostrava tela branca.
-```
-
-Investigação:
-
-O EPUB original tinha capítulos internos com milhares de bytes:
-
-```text
-text/part0007_split_001.html -> 9422 bytes
-```
-
-O EPUB traduzido defeituoso tinha capítulos com cerca de 264 bytes:
-
-```text
-EPUB/text/part0007_split_001.html -> 264 bytes
-```
-
-Ao abrir o XHTML interno:
-
-```html
-<head/>
-<body/>
-```
-
-Ou seja: a estrutura do EPUB existia, mas os capítulos estavam vazios.
-
-Diagnóstico:
-
-O problema não estava na tradução isolada do HTML. A função `translate_html()` preservava conteúdo quando testada sozinha.
-
-O problema apareceu no momento de gravar o EPUB com `ebooklib.write_epub()`. A biblioteca reconstruía os documentos `EpubHtml` e acabava produzindo capítulos com `<head/>` e `<body/>` vazios em alguns casos.
-
-## 13. Correção do bug da tela branca
-
-A estratégia foi alterada.
-
-Antes:
-
-```text
-ebooklib lê EPUB
--> modifica EpubHtml
--> ebooklib.write_epub reescreve o EPUB inteiro
-```
-
-Depois:
-
-```text
-abre EPUB original como ZIP
--> lê XHTML/HTML original direto do ZIP
--> traduz o conteúdo
--> copia todos os arquivos originais para o novo EPUB
--> substitui somente os XHTML/HTML traduzidos
-```
-
-Isso é mais conservador e adequado para EPUB, porque preserva:
-
-- `content.opf`
-- `toc.ncx`
-- imagens
-- CSS
-- caminhos internos
-- arquivos não modificados
-- estrutura geral do ZIP
-
-O `ebooklib` ainda é usado para inspecionar e localizar documentos, mas não é mais usado para reconstruir o EPUB final.
-
-Validação após correção:
-
-```text
-ValidationResult(ok=True, warnings=[], document_count=176)
-```
-
-Exemplo de capítulo interno após correção:
-
-```html
-<body class="calibre">
-<h2 class="calibre10" id="calibre_pb_1">Configurar a Entrada</h2>
-<p class="calibre1">Algures em cada jogo está um pedaço de código...</p>
-```
-
-O capítulo deixou de estar vazio.
-
-## 14. Erros restantes do LibreTranslate
-
-Em uma execução, o relatório mostrou:
-
-```text
-Texts 6170 | new 0 | cache 6011 | errors 159
-```
-
-Isso significa:
-
-- 6011 textos foram carregados do cache;
-- 159 textos não estavam no cache;
-- esses 159 precisavam do LibreTranslate;
-- mas o servidor local não estava acessível naquele momento.
-
-Mensagem:
-
-```text
-Could not connect to LibreTranslate at http://localhost:5000/translate.
-Is the local translation server running?
-```
-
-Solução:
-
-Subir o LibreTranslate e rodar novamente com o mesmo cache:
-
-```bash
-docker run -it -p 5000:5000 libretranslate/libretranslate
-```
-
-Depois:
-
-```bash
-ayvu translate game.epub \
-  --output game-ptbr.epub \
-  --source en \
-  --target pt \
-  --translator libretranslate \
-  --url http://localhost:5000 \
-  --cache .cache/traducoes.sqlite \
-  --glossary glossary.json \
-  --overwrite
-```
-
-## 15. Arquivos importantes
-
-CLI:
-
-```text
-src/ayvu/cli.py
-```
-
-Leitura, inspeção, extração e empacotamento EPUB:
-
-```text
-src/ayvu/epub_io.py
-```
-
-Tradução de HTML:
-
-```text
-src/ayvu/html_translate.py
-```
-
-Tradutor HTTP:
-
-```text
-src/ayvu/translator.py
-```
-
-Cache SQLite:
-
-```text
-src/ayvu/cache.py
-```
-
-Glossário:
-
-```text
-src/ayvu/glossary.py
-```
-
-Chunking:
-
-```text
-src/ayvu/chunking.py
-```
-
-Validação:
-
-```text
-src/ayvu/validation.py
-```
-
-## 16. Testes atuais
-
-Cobertura criada:
-
-- cache SQLite;
-- divisão de texto em chunks;
-- aplicação de glossário;
-- tradução de HTML preservando tags;
-- ignorar `script`, `style`, `code`, `pre`;
-- não traduzir `DOCTYPE` e comentários;
-- resolução de caminhos internos para EPUB com OPF na raiz ou em subpasta.
-
-Rodar:
-
-```bash
-pytest
-```
-
-Resultado atual:
-
-```text
-15 passed
-```
-
-## 17. Próximos passos técnicos
-
-Prioridades recomendadas:
-
-1. Criar `.gitignore`, `LICENSE`, `CHANGELOG.md` e `CONTRIBUTING.md`.
-2. Adicionar GitHub Actions rodando `pytest`.
-3. Tratar `Ctrl+C` com relatório parcial mais limpo.
-4. Melhorar o relatório final para resumir erros repetidos.
-5. Criar testes com EPUB mínimo gerado por código.
-6. Adicionar modo `--cache-only` para gerar EPUB usando apenas cache, sem chamar tradutor.
-7. Melhorar qualidade da tradução preservando tags com placeholders.
-8. Adicionar suporte opcional a outros tradutores locais.
-9. Criar documentação de arquitetura.
-10. Melhorar UX para uso open source.
-
-## 18. Melhorias de qualidade de tradução
-
-O MVP traduz nó de texto por nó de texto. Isso preserva HTML, mas pode perder contexto quando uma frase está dividida por tags.
+Também são ignorados comentários, `DOCTYPE`, declarações XML e processing instructions.
 
 Exemplo:
 
@@ -556,7 +288,7 @@ Exemplo:
 <p>Any programming book with <em>Patterns</em> in its name.</p>
 ```
 
-Hoje isso pode virar três traduções separadas:
+Hoje isso pode ser traduzido em três nós separados:
 
 ```text
 "Any programming book with "
@@ -564,23 +296,161 @@ Hoje isso pode virar três traduções separadas:
 " in its name."
 ```
 
-Uma melhoria futura seria traduzir o bloco inteiro usando placeholders:
+Essa escolha preserva a estrutura, mas pode perder contexto. A melhoria planejada é traduzir blocos com placeholders de tags, sem enviar HTML real ao tradutor.
+
+## 11. Cache, glossário e chunking
+
+O cache SQLite usa chave baseada em:
 
 ```text
-Any programming book with __TAG_1_OPEN__Patterns__TAG_1_CLOSE__ in its name.
+source_lang + target_lang + SHA-256(texto original)
 ```
 
-Depois da tradução, os placeholders seriam substituídos de volta pelas tags.
+O glossário é aplicado depois da tradução e também sobre textos recuperados do cache. Isso mantém o comportamento consistente entre texto novo e texto reaproveitado.
 
-Isso preservaria melhor contexto sem enviar HTML real ao tradutor.
+Textos longos são divididos antes de serem enviados ao tradutor. A regra atual tenta dividir por:
+
+```text
+parágrafos
+-> frases
+-> palavras
+-> corte inevitável de tokens muito grandes
+```
+
+O limite padrão é `3000` caracteres.
+
+## 12. Preflight e erros esperados
+
+Antes de uma tradução real, o Ayvu verifica:
+
+- par de idiomas;
+- glossário;
+- criação do tradutor;
+- escrita no cache;
+- leitura do EPUB;
+- chamada de teste ao tradutor.
+
+Em `--dry-run`, a chamada real ao tradutor é pulada. Falhas esperadas são convertidas em mensagens curtas com causa provável e próximo passo, evitando traceback para erro comum de usuário.
+
+## 13. Retomada local
+
+Além do cache SQLite, traduções reais registram um estado local em:
+
+```text
+~/Documentos/Livros/Processando
+```
+
+Esse estado guarda caminhos e opções da execução para facilitar retomada pelo modo comum. Ele não substitui o cache e não é apagado automaticamente.
+
+O cache continua sendo a parte que evita retraduzir textos já concluídos.
+
+## 14. Relatórios
+
+Ao final da tradução, o Ayvu mostra um relatório no terminal com:
+
+- EPUB original;
+- idiomas;
+- saída gerada;
+- capítulos processados;
+- textos traduzidos;
+- textos reaproveitados do cache;
+- textos pulados no dry-run;
+- erros.
+
+No modo comum, o Ayvu também oferece salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`, sem sobrescrever relatórios anteriores.
+
+## 15. Bug crítico: EPUB com tela branca
+
+Durante o desenvolvimento inicial, um EPUB traduzido abria no leitor, mas mostrava tela branca.
+
+O EPUB original tinha capítulos internos com milhares de bytes, mas o EPUB gerado tinha documentos reduzidos a algo como:
+
+```html
+<head/>
+<body/>
+```
+
+O problema não estava na tradução isolada do HTML. A função de tradução preservava o conteúdo quando testada separadamente.
+
+O problema aparecia ao reescrever o livro com `ebooklib.write_epub()`, que reconstruía alguns documentos `EpubHtml` vazios.
+
+A correção foi abandonar a reescrita completa pelo `ebooklib` e copiar o EPUB original como ZIP, substituindo somente os documentos traduzidos. Essa decisão continua sendo central para a estabilidade do Ayvu.
+
+## 16. LibreTranslate
+
+O backend atual é `LibreTranslateTranslator`.
+
+Endpoint de tradução:
+
+```text
+http://localhost:5000/translate
+```
+
+Endpoint de idiomas:
+
+```text
+http://localhost:5000/languages
+```
+
+Subir LibreTranslate com Docker:
+
+```bash
+docker run -it -p 5000:5000 libretranslate/libretranslate
+```
+
+Testar conexão:
+
+```bash
+uv run ayvu test-translator --url http://localhost:5000
+```
+
+Se o servidor estiver indisponível, o Ayvu deve falhar com uma mensagem orientada a ação, não com traceback bruto.
+
+## 17. Testes e CI
+
+A suíte atual tem 88 testes definidos em `tests/`, cobrindo:
+
+- cache SQLite;
+- chunking;
+- glossário;
+- tradução de HTML;
+- preservação de tags;
+- extração de texto visível;
+- caminhos internos de EPUB;
+- cópia conservadora do EPUB;
+- validação do EPUB gerado;
+- backend LibreTranslate;
+- listagem de idiomas;
+- preflight;
+- estado de retomada;
+- progresso;
+- comandos CLI e fluxos guiados.
+
+O CI está em `.github/workflows/tests.yml` e roda:
+
+```bash
+uv sync --extra dev --frozen
+uv run pytest
+```
+
+## 18. Próximos passos técnicos
+
+Prioridades que ainda fazem sentido:
+
+1. Traduzir blocos HTML preservando tags internas por placeholders.
+2. Proteger termos especiais antes da tradução: URLs, comandos, caminhos, versões, placeholders e código inline.
+3. Evoluir o glossário para regras explícitas de preservar, traduzir e proibir termos.
+4. Melhorar validação pós-tradução, incluindo links, capítulos vazios, imagens ausentes e texto não traduzido.
+5. Criar configuração persistente para idioma padrão, pastas e preferências.
+6. Melhorar cache com inspeção, limpeza, exportação e escopo por backend/modelo/glossário.
+7. Adicionar modo `--cache-only`.
+8. Suportar backends alternativos.
+9. Documentar arquitetura em um documento dedicado.
+10. Preparar empacotamento e releases públicas.
 
 ## 19. Possível suporte a PDF
 
-Foi discutida a possibilidade de aplicar ideia semelhante a PDFs.
-
-Conclusão:
-
-PDF é mais difícil que EPUB porque não é estrutura semântica de livro. PDF é mais próximo de páginas impressas com posições absolutas.
+PDF continua sendo um alvo futuro e mais difícil que EPUB, porque não é uma estrutura semântica de livro. PDF é mais próximo de páginas impressas com posições absolutas.
 
 Caminho mais realista:
 
@@ -591,89 +461,25 @@ PDF
 -> usar pipeline atual de tradução EPUB
 ```
 
-Um comando futuro poderia ser:
+Não é recomendado começar tentando traduzir PDF preservando layout perfeito. A tradução muda tamanho de texto e pode quebrar caixas, colunas, tabelas e fontes.
 
-```bash
-ayvu pdf-to-epub livro.pdf --output livro.epub
-```
+## 20. Ideia central
 
-Depois:
-
-```bash
-ayvu translate livro.epub --output livro-ptbr.epub
-```
-
-Bibliotecas candidatas:
-
-- `PyMuPDF`
-- `pdfplumber`
-- `ocrmypdf` e `tesseract` para PDFs escaneados
-
-Não é recomendado começar tentando traduzir PDF preservando layout perfeito. Isso é frágil porque a tradução muda tamanho de texto, quebra caixas, colunas, tabelas e fontes.
-
-## 20. Lições técnicas do processo
-
-Algumas decisões importantes que apareceram durante o uso real:
-
-- Progresso visual é parte da experiência de usuário, não detalhe cosmético.
-- Cache é essencial em tarefas longas.
-- EPUB deve ser tratado de forma conservadora; reescrever o pacote inteiro pode quebrar estrutura.
-- Validar apenas “o arquivo existe” é insuficiente.
-- É preciso inspecionar os arquivos internos quando algo abre em branco.
-- O pipeline precisa continuar mesmo quando alguns capítulos ou textos falham.
-- Erros repetidos devem ser resumidos no futuro para não poluir o terminal.
-
-## 21. Comando recomendado para continuar
-
-Subir o tradutor:
-
-```bash
-docker run -it -p 5000:5000 libretranslate/libretranslate
-```
-
-Em outro terminal:
-
-```bash
-cd ayvu
-source .venv/bin/activate
-
-ayvu test-translator --url http://localhost:5000
-
-ayvu translate game.epub \
-  --output game-ptbr.epub \
-  --source en \
-  --target pt \
-  --translator libretranslate \
-  --url http://localhost:5000 \
-  --cache .cache/traducoes.sqlite \
-  --glossary glossary.json \
-  --overwrite
-```
-
-Depois abrir `game-ptbr.epub` no leitor e verificar:
-
-- capa;
-- sumário;
-- primeiro capítulo;
-- capítulos do meio;
-- links internos;
-- imagens;
-- blocos de código;
-- notas e referências.
-
-## 22. Ideia central
-
-O projeto deixou de ser apenas um script de tradução e virou uma base real para um software open source:
+O Ayvu deixou de ser um script de tradução e virou uma base real de CLI:
 
 ```text
 CLI instalável
+EPUB original preservado
 cache
+glossário
 tradução local
+preflight
 progresso visual
+retomada
 validação
 testes
+CI
 documentação
-bug real investigado e corrigido
 ```
 
-O próximo salto não é escrever mais código sem direção. É transformar isso em produto pequeno, confiável e bem documentado.
+O próximo salto é melhorar qualidade de tradução, robustez de validação e experiência de configuração sem comprometer a regra principal: nunca alterar o EPUB original.

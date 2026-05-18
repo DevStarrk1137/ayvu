@@ -47,6 +47,10 @@ Todo merge na `main` deve passar por pull request. A descricao do PR deve deixar
 
 Use `Refs #N` quando o PR apenas avanca uma issue e `Closes #N` quando o PR conclui a tarefa.
 
+Abra o PR como draft quando ainda houver revisao ou discussao pendente antes do merge.
+
+Commits devem ser pequenos, descritivos e limitados ao escopo da issue. Evite misturar codigo e documentacao nao relacionada na mesma alteracao.
+
 Antes de mergear uma mudanca de codigo, rode:
 
 ```bash
@@ -96,3 +100,6 @@ Depois de mergear um PR:
 3. Apague a branch local e remota, salvo se houver motivo para mante-la.
 
 Esse fluxo mantem a `main` como linha principal estavel e evita branches antigas sem proposito.
+
+Arquivos de usuario, EPUBs, PDFs, caches SQLite e glossarios privados nao devem
+entrar em commits, PRs ou releases.
