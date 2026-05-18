@@ -77,6 +77,9 @@ Sem caminho de saída explícito, o padrão é:
 ~/Documentos/Livros/Traduzidos/livro-pt.epub
 ```
 
+Se esse EPUB de saída já existir, o modo comum permite sobrescrever, escolher outro nome
+ou cancelar sem alterar o arquivo existente.
+
 Ao final, o Ayvu mostra um relatório no terminal com capítulos processados, textos traduzidos, textos reaproveitados do cache, erros e caminho de saída. No modo comum, ele também pode salvar esse relatório em Markdown em:
 
 ```text

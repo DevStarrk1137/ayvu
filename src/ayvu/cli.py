@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import NoReturn, Optional
 
 import typer
 from rich.console import Console
@@ -44,6 +44,9 @@ GUIDED_LIBRARY_OPTION = "3"
 GUIDED_SETTINGS_OPTION = "4"
 GUIDED_HELP_OPTION = "5"
 GUIDED_EXIT_OPTION = "0"
+EXISTING_OUTPUT_OVERWRITE_OPTION = "1"
+EXISTING_OUTPUT_RENAME_OPTION = "2"
+EXISTING_OUTPUT_CANCEL_OPTION = "0"
 
 
 @app.callback(invoke_without_command=True)
@@ -253,12 +256,8 @@ def _run_translation(
         default_dir=default_translated_books_dir(),
     )
     output_plan = _confirm_default_output_location(output_plan, epub_path, mode=mode)
+    output_plan = _resolve_existing_output_conflict(output_plan, overwrite=overwrite, mode=mode)
     output_path = output_plan.path
-
-    if output_plan.blocks_existing_file(overwrite):
-        if not _confirm_existing_output_overwrite(output_path, mode=mode):
-            console.print("[red]Canceled:[/red] existing output was not changed.")
-            raise typer.Exit(code=1)
 
     try:
         preflight = run_translation_preflight(
@@ -965,13 +964,55 @@ def _single_line(value: str) -> str:
     return " ".join(value.split())
 
 
-def _confirm_existing_output_overwrite(output_path: Path, mode: UserMode) -> bool:
+def _resolve_existing_output_conflict(output_plan: OutputPlan, overwrite: bool, mode: UserMode) -> OutputPlan:
+    if not output_plan.blocks_existing_file(overwrite):
+        return output_plan
     if mode == UserMode.DEVELOPER:
-        return False
+        _cancel_existing_output(output_plan.path)
 
-    console.print(f"[yellow]Output path:[/yellow] {output_path}")
+    console.print(f"[yellow]Output path:[/yellow] {output_plan.path}")
     console.print("[yellow]Translated EPUB already exists.[/yellow]")
-    return typer.confirm("Overwrite existing translated EPUB?", default=False)
+    action = _prompt_existing_output_action()
+    if action == EXISTING_OUTPUT_OVERWRITE_OPTION:
+        return output_plan
+    if action == EXISTING_OUTPUT_RENAME_OPTION:
+        return output_plan.with_path(_prompt_available_output_path(output_plan.path))
+
+    _cancel_existing_output(output_plan.path)
+
+
+def _prompt_existing_output_action() -> str:
+    console.print(f"{EXISTING_OUTPUT_OVERWRITE_OPTION}. Overwrite existing EPUB")
+    console.print(f"{EXISTING_OUTPUT_RENAME_OPTION}. Choose another name")
+    console.print(f"{EXISTING_OUTPUT_CANCEL_OPTION}. Cancel")
+
+    while True:
+        action = typer.prompt("Choose an option", default=EXISTING_OUTPUT_RENAME_OPTION).strip()
+        if action in {
+            EXISTING_OUTPUT_OVERWRITE_OPTION,
+            EXISTING_OUTPUT_RENAME_OPTION,
+            EXISTING_OUTPUT_CANCEL_OPTION,
+        }:
+            return action
+        console.print("[red]Invalid option.[/red] Choose 1, 2, or 0.")
+
+
+def _prompt_available_output_path(default_path: Path) -> Path:
+    while True:
+        output_path = _prompt_output_path(default_path)
+        if not output_path.exists():
+            console.print(f"[green]Final output path:[/green] {output_path}")
+            return output_path
+        console.print(f"[red]Output path already exists:[/red] {output_path}")
+        if not typer.confirm("Choose another output path?", default=True):
+            _cancel_existing_output(output_path)
+
+
+def _cancel_existing_output(output_path: Path) -> NoReturn:
+    console.print("[red]Canceled:[/red] existing output was not changed.")
+    console.print(f"[yellow]Output path:[/yellow] {output_path}")
+    console.print("Use --overwrite to replace it or --output to choose another EPUB path.")
+    raise typer.Exit(code=1)
 
 
 def _confirm_existing_preview_overwrite(output_path: Path, mode: UserMode) -> bool:
