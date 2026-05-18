@@ -41,12 +41,13 @@ O Ayvu já possui:
 - modo comum guiado e modo desenvolvedor direto;
 - retomada local de traduções interrompidas;
 - comando para listar idiomas do LibreTranslate;
+- formato inicial de configuração local;
 - validação básica do EPUB gerado;
 - testes automatizados e CI no GitHub Actions.
 
 Ainda não possui:
 
-- arquivo de configuração persistente do Ayvu;
+- interface completa para editar configurações persistentes do Ayvu;
 - biblioteca completa de livros;
 - gerenciamento automático do LibreTranslate;
 - tradução por bloco preservando tags internas;
@@ -73,6 +74,7 @@ ayvu/
 │       ├── chunking.py
 │       ├── cli.py
 │       ├── cli_progress.py
+│       ├── config.py
 │       ├── domain.py
 │       ├── epub_io.py
 │       ├── glossary.py
@@ -87,6 +89,7 @@ ayvu/
 │   ├── test_chunking.py
 │   ├── test_cli.py
 │   ├── test_cli_progress.py
+│   ├── test_config.py
 │   ├── test_epub_io.py
 │   ├── test_glossary.py
 │   ├── test_html_translate.py
@@ -236,9 +239,49 @@ uv run ayvu --mode common translate livro.epub
 
 `src/ayvu/cli_progress.py` adapta callbacks de tradução para `rich.Progress` e mantém contadores de textos.
 
+`src/ayvu/config.py` define o formato inicial de configuração JSON, o caminho padrão do arquivo, leitura/gravação e resolução das pastas locais do Ayvu.
+
 `src/ayvu/validation.py` faz validação básica do EPUB gerado.
 
-## 9. Pipeline de EPUB
+## 9. Configuração local
+
+O formato inicial da configuração local fica em:
+
+```text
+$XDG_CONFIG_HOME/ayvu/config.json
+```
+
+Quando `XDG_CONFIG_HOME` não estiver definido, o fallback é:
+
+```text
+~/.config/ayvu/config.json
+```
+
+Formato versionado atual:
+
+```json
+{
+  "version": 1,
+  "default_target_language": "pt",
+  "books_dir": "~/Documentos/Livros",
+  "folders": {
+    "original": "Original",
+    "translated": "Traduzidos",
+    "preview": "Preview",
+    "reports": "Relatorios",
+    "processing": "Processando"
+  },
+  "reader_app": null
+}
+```
+
+A precedência planejada para os próximos fluxos é:
+
+```text
+argumentos da CLI > arquivo de configuração > padrões internos
+```
+
+## 10. Pipeline de EPUB
 
 A decisão mais importante do pipeline é não reconstruir o EPUB inteiro com `ebooklib.write_epub()`.
 
@@ -264,7 +307,7 @@ Essa abordagem preserva:
 - nomes de arquivos internos;
 - entradas não modificadas do ZIP.
 
-## 10. Tradução de HTML
+## 11. Tradução de HTML
 
 A regra principal é:
 
@@ -298,7 +341,7 @@ Hoje isso pode ser traduzido em três nós separados:
 
 Essa escolha preserva a estrutura, mas pode perder contexto. A melhoria planejada é traduzir blocos com placeholders de tags, sem enviar HTML real ao tradutor.
 
-## 11. Cache, glossário e chunking
+## 12. Cache, glossário e chunking
 
 O cache SQLite usa chave baseada em:
 
@@ -319,7 +362,7 @@ parágrafos
 
 O limite padrão é `3000` caracteres.
 
-## 12. Preflight e erros esperados
+## 13. Preflight e erros esperados
 
 Antes de uma tradução real, o Ayvu verifica:
 
@@ -332,7 +375,7 @@ Antes de uma tradução real, o Ayvu verifica:
 
 Em `--dry-run`, a chamada real ao tradutor é pulada. Falhas esperadas são convertidas em mensagens curtas com causa provável e próximo passo, evitando traceback para erro comum de usuário.
 
-## 13. Retomada local
+## 14. Retomada local
 
 Além do cache SQLite, traduções reais registram um estado local em:
 
@@ -344,7 +387,7 @@ Esse estado guarda caminhos e opções da execução para facilitar retomada pel
 
 O cache continua sendo a parte que evita retraduzir textos já concluídos.
 
-## 14. Relatórios
+## 15. Relatórios
 
 Ao final da tradução, o Ayvu mostra um relatório no terminal com:
 
@@ -359,7 +402,7 @@ Ao final da tradução, o Ayvu mostra um relatório no terminal com:
 
 No modo comum, o Ayvu também oferece salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`, sem sobrescrever relatórios anteriores.
 
-## 15. Bug crítico: EPUB com tela branca
+## 16. Bug crítico: EPUB com tela branca
 
 Durante o desenvolvimento inicial, um EPUB traduzido abria no leitor, mas mostrava tela branca.
 
@@ -376,7 +419,7 @@ O problema aparecia ao reescrever o livro com `ebooklib.write_epub()`, que recon
 
 A correção foi abandonar a reescrita completa pelo `ebooklib` e copiar o EPUB original como ZIP, substituindo somente os documentos traduzidos. Essa decisão continua sendo central para a estabilidade do Ayvu.
 
-## 16. LibreTranslate
+## 17. LibreTranslate
 
 O backend atual é `LibreTranslateTranslator`.
 
@@ -406,13 +449,14 @@ uv run ayvu test-translator --url http://localhost:5000
 
 Se o servidor estiver indisponível, o Ayvu deve falhar com uma mensagem orientada a ação, não com traceback bruto.
 
-## 17. Testes e CI
+## 18. Testes e CI
 
-A suíte atual tem 88 testes definidos em `tests/`, cobrindo:
+A suíte atual tem 100 testes definidos em `tests/`, cobrindo:
 
 - cache SQLite;
 - chunking;
 - glossário;
+- configuração local;
 - tradução de HTML;
 - preservação de tags;
 - extração de texto visível;
@@ -433,7 +477,7 @@ uv sync --extra dev --frozen
 uv run pytest
 ```
 
-## 18. Próximos passos técnicos
+## 19. Próximos passos técnicos
 
 Prioridades que ainda fazem sentido:
 
@@ -448,7 +492,7 @@ Prioridades que ainda fazem sentido:
 9. Documentar arquitetura em um documento dedicado.
 10. Preparar empacotamento e releases públicas.
 
-## 19. Possível suporte a PDF
+## 20. Possível suporte a PDF
 
 PDF continua sendo um alvo futuro e mais difícil que EPUB, porque não é uma estrutura semântica de livro. PDF é mais próximo de páginas impressas com posições absolutas.
 
@@ -463,7 +507,7 @@ PDF
 
 Não é recomendado começar tentando traduzir PDF preservando layout perfeito. A tradução muda tamanho de texto e pode quebrar caixas, colunas, tabelas e fontes.
 
-## 20. Ideia central
+## 21. Ideia central
 
 O Ayvu deixou de ser um script de tradução e virou uma base real de CLI:
 
