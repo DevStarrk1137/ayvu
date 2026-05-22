@@ -239,7 +239,7 @@ uv run ayvu --mode common translate livro.epub
 
 `src/ayvu/cli_progress.py` adapta callbacks de tradução para `rich.Progress` e mantém contadores de textos.
 
-`src/ayvu/config.py` define o formato inicial de configuração JSON, o caminho padrão do arquivo, leitura/gravação e resolução das pastas locais do Ayvu.
+`src/ayvu/config.py` define o formato inicial de configuração JSON, o caminho padrão do arquivo, leitura/gravação e resolução das pastas locais do Ayvu. O menu guiado de `Settings` permite alterar idioma padrão, pasta base, nomes das pastas das funcionalidades e app leitor.
 
 `src/ayvu/validation.py` valida o EPUB gerado: confirma abertura e documentos XHTML/HTML e avisa sobre capítulos vazios, links internos quebrados e imagens referenciadas ausentes, com callback de progresso opcional. Qualquer aviso faz a execução falhar com código 1.
 
@@ -275,11 +275,13 @@ Formato versionado atual:
 }
 ```
 
-A precedência planejada para os próximos fluxos é:
+A precedência usada pelos fluxos atuais é:
 
 ```text
 argumentos da CLI > arquivo de configuração > padrões internos
 ```
+
+Hoje a configuração já alimenta os diretórios padrão de preview, traduções, relatórios Markdown e estados de processamento. O app leitor fica salvo para os fluxos de biblioteca.
 
 ## 10. Pipeline de EPUB
 

@@ -11,7 +11,7 @@ from rich.table import Table
 
 from .cache import TranslationCache
 from .cli_progress import TranslationProgress, TranslationProgressSnapshot
-from .config import AyvuConfig, ConfigError, ConfigStore
+from .config import DEFAULT_BOOKS_DIR, AyvuConfig, ConfigError, ConfigStore, FolderNames
 from .domain import (
     LanguagePair,
     OutputPlan,
@@ -46,6 +46,11 @@ GUIDED_LIBRARY_OPTION = "3"
 GUIDED_SETTINGS_OPTION = "4"
 GUIDED_HELP_OPTION = "5"
 GUIDED_EXIT_OPTION = "0"
+SETTINGS_LANGUAGE_OPTION = "1"
+SETTINGS_BOOKS_DIR_OPTION = "2"
+SETTINGS_FOLDERS_OPTION = "3"
+SETTINGS_READER_OPTION = "4"
+SETTINGS_EXIT_OPTION = "0"
 EXISTING_OUTPUT_OVERWRITE_OPTION = "1"
 EXISTING_OUTPUT_RENAME_OPTION = "2"
 EXISTING_OUTPUT_CANCEL_OPTION = "0"
@@ -83,7 +88,8 @@ def main(
         _run_preview(preview, mode=mode)
         return
 
-    scan = _print_processing_translation_states(ResumeStateStore(default_processing_dir()))
+    config = _load_existing_config_or_default()
+    scan = _print_processing_translation_states(ResumeStateStore(_processing_dir(config)))
     if _offer_detected_translation_resume(scan.running, mode=mode):
         return
 
@@ -191,6 +197,7 @@ def translate(
 ) -> None:
     """Translate EPUB visible text while preserving EPUB structure."""
     mode = ctx.obj.get("mode", UserMode.DEVELOPER)
+    config = _load_existing_config_or_default()
     _run_translation(
         epub_path=epub_path,
         output=output,
@@ -207,6 +214,7 @@ def translate(
         retries=retries,
         chunk_limit=chunk_limit,
         mode=mode,
+        config=config,
     )
 
 
@@ -242,7 +250,9 @@ def _run_translation(
     retries: int,
     chunk_limit: int,
     mode: UserMode,
+    config: AyvuConfig | None = None,
 ) -> None:
+    config = config or _load_existing_config_or_default()
     language_pair = LanguagePair(source=source, target=target)
     translation_options = TranslationOptions(
         language_pair=language_pair,
@@ -255,7 +265,7 @@ def _run_translation(
         output,
         language_pair,
         dry_run=dry_run,
-        default_dir=default_translated_books_dir(),
+        default_dir=_translated_books_dir(config),
     )
     output_plan = _confirm_default_output_location(output_plan, epub_path, mode=mode)
     output_plan = _resolve_existing_output_conflict(output_plan, overwrite=overwrite, mode=mode)
@@ -291,6 +301,7 @@ def _run_translation(
             overwrite=overwrite,
             timeout=timeout,
             retries=retries,
+            processing_dir=_processing_dir(config),
         )
 
     progress_view: TranslationProgress | None = None
@@ -356,7 +367,9 @@ def _run_preview(
     chunk_limit: int = 3000,
     max_documents: int = DEFAULT_PREVIEW_DOCUMENT_LIMIT,
     mode: UserMode = UserMode.DEVELOPER,
+    config: AyvuConfig | None = None,
 ) -> None:
+    config = config or _load_existing_config_or_default()
     epub_path = epub_path.expanduser()
     _ensure_preview_input_exists(epub_path)
 
@@ -368,7 +381,7 @@ def _run_preview(
     )
     output_plan = OutputPlan.for_preview(
         epub_path,
-        default_dir=default_preview_books_dir(),
+        default_dir=_preview_books_dir(config),
     )
     output_path = output_plan.path
     _print_preview_output_location(output_path, max_documents)
@@ -580,6 +593,16 @@ def _load_or_init_config(store: ConfigStore | None = None) -> AyvuConfig:
         return AyvuConfig.default()
 
 
+def _load_existing_config_or_default(store: ConfigStore | None = None) -> AyvuConfig:
+    store = store or ConfigStore.default()
+    try:
+        return store.load()
+    except ConfigError as exc:
+        console.print(f"[yellow]Configuração inválida ignorada:[/yellow] {exc}")
+        console.print("Usando configuração padrão. Ajuste o arquivo de configuração quando possível.")
+        return AyvuConfig.default()
+
+
 def _init_default_language_config(store: ConfigStore) -> AyvuConfig:
     console.print("[yellow]Primeiro uso do modo comum.[/yellow]")
     console.print("Escolha o idioma padrão de leitura/tradução. Você poderá alterá-lo depois em Settings.")
@@ -596,7 +619,7 @@ def _save_config(store: ConfigStore, config: AyvuConfig) -> bool:
         return True
     except ConfigError as exc:
         console.print(f"[yellow]Não foi possível salvar a configuração:[/yellow] {exc}")
-        console.print("O idioma será usado nesta execução, mas não foi persistido.")
+        console.print("A mudança será usada nesta execução, mas não foi persistida.")
         return False
 
 
@@ -615,11 +638,11 @@ def _print_guided_main_menu() -> None:
 
 def _handle_guided_main_choice(choice: str, ctx: typer.Context, config: AyvuConfig) -> bool:
     if choice == GUIDED_TRANSLATE_OPTION:
-        _run_guided_translation(config.default_target_language)
+        _run_guided_translation(config)
         return True
 
     if choice == GUIDED_PREVIEW_OPTION:
-        _run_guided_preview(config.default_target_language)
+        _run_guided_preview(config)
         return True
 
     if choice == GUIDED_LIBRARY_OPTION:
@@ -643,9 +666,9 @@ def _handle_guided_main_choice(choice: str, ctx: typer.Context, config: AyvuConf
     return True
 
 
-def _run_guided_translation(default_target: str) -> None:
+def _run_guided_translation(config: AyvuConfig) -> None:
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
-    target = _choose_guided_target_language(default_target)
+    target = _choose_guided_target_language(config.default_target_language)
     _run_translation(
         epub_path=epub_path,
         output=None,
@@ -662,29 +685,129 @@ def _run_guided_translation(default_target: str) -> None:
         retries=2,
         chunk_limit=3000,
         mode=UserMode.COMMON,
+        config=config,
     )
 
 
-def _run_guided_preview(default_target: str) -> None:
+def _run_guided_preview(config: AyvuConfig) -> None:
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
-    target = _choose_guided_target_language(default_target)
-    _run_preview(epub_path, target=target, mode=UserMode.COMMON)
+    target = _choose_guided_target_language(config.default_target_language)
+    _run_preview(epub_path, target=target, mode=UserMode.COMMON, config=config)
 
 
 def _run_guided_settings(config: AyvuConfig) -> None:
-    console.print(f"[yellow]Current default language:[/yellow] {config.default_target_language}")
-    if not typer.confirm("Change default language?", default=False):
-        console.print("Default language unchanged.")
-        return
+    store = ConfigStore.default()
+    current = config
+    while True:
+        _print_settings(current)
+        _print_settings_menu()
+        choice = typer.prompt("Choose a setting", default=SETTINGS_EXIT_OPTION).strip()
+        if choice == SETTINGS_LANGUAGE_OPTION:
+            current = _update_guided_settings(store, current, _settings_with_default_language(current))
+            continue
+        if choice == SETTINGS_BOOKS_DIR_OPTION:
+            current = _update_guided_settings(store, current, _settings_with_books_dir(current))
+            continue
+        if choice == SETTINGS_FOLDERS_OPTION:
+            current = _update_guided_settings(store, current, _settings_with_folder_names(current))
+            continue
+        if choice == SETTINGS_READER_OPTION:
+            current = _update_guided_settings(store, current, _settings_with_reader_app(current))
+            continue
+        if choice == SETTINGS_EXIT_OPTION:
+            console.print("Settings closed.")
+            return
 
+        console.print("[red]Invalid setting.[/red] Choose 1, 2, 3, 4, or 0.")
+
+
+def _print_settings(config: AyvuConfig) -> None:
+    table = Table(title="Settings")
+    table.add_column("Preference")
+    table.add_column("Current value")
+    table.add_row("Default target language", config.default_target_language)
+    table.add_row("Books folder", str(config.books_dir))
+    table.add_row("Original folder", config.folders.original)
+    table.add_row("Translated folder", config.folders.translated)
+    table.add_row("Preview folder", config.folders.preview)
+    table.add_row("Reports folder", config.folders.reports)
+    table.add_row("Processing folder", config.folders.processing)
+    table.add_row("Reader app", config.reader_app or "-")
+    console.print(table)
+
+
+def _print_settings_menu() -> None:
+    console.print(f"{SETTINGS_LANGUAGE_OPTION}. Change default language")
+    console.print(f"{SETTINGS_BOOKS_DIR_OPTION}. Change books folder")
+    console.print(f"{SETTINGS_FOLDERS_OPTION}. Change feature folder names")
+    console.print(f"{SETTINGS_READER_OPTION}. Change reader app")
+    console.print(f"{SETTINGS_EXIT_OPTION}. Back")
+
+
+def _update_guided_settings(store: ConfigStore, current: AyvuConfig, updated: AyvuConfig) -> AyvuConfig:
+    if updated == current:
+        console.print("Settings unchanged.")
+        return current
+    if _save_config(store, updated):
+        console.print("[green]Settings saved.[/green]")
+    return updated
+
+
+def _settings_with_default_language(config: AyvuConfig) -> AyvuConfig:
     language = _prompt_target_language_code(config.default_target_language)
     if language == config.default_target_language:
-        console.print("Default language unchanged.")
-        return
+        return config
+    return replace(config, default_target_language=language)
 
-    updated = replace(config, default_target_language=language)
-    if _save_config(ConfigStore.default(), updated):
-        console.print(f"[green]Default language saved:[/green] {language}")
+
+def _settings_with_books_dir(config: AyvuConfig) -> AyvuConfig:
+    books_dir = _prompt_path("Books folder", config.books_dir)
+    if books_dir == config.books_dir:
+        return config
+    return replace(config, books_dir=books_dir)
+
+
+def _settings_with_folder_names(config: AyvuConfig) -> AyvuConfig:
+    try:
+        folders = FolderNames.from_dict(
+            {
+                "original": _prompt_folder_name("Original folder name", config.folders.original),
+                "translated": _prompt_folder_name("Translated folder name", config.folders.translated),
+                "preview": _prompt_folder_name("Preview folder name", config.folders.preview),
+                "reports": _prompt_folder_name("Reports folder name", config.folders.reports),
+                "processing": _prompt_folder_name("Processing folder name", config.folders.processing),
+            }
+        )
+    except ConfigError as exc:
+        console.print(f"[red]Invalid folder name:[/red] {exc}")
+        return config
+    if folders == config.folders:
+        return config
+    return replace(config, folders=folders)
+
+
+def _settings_with_reader_app(config: AyvuConfig) -> AyvuConfig:
+    reader_app = _prompt_optional_text("Reader app command", config.reader_app)
+    if reader_app == config.reader_app:
+        return config
+    return replace(config, reader_app=reader_app)
+
+
+def _prompt_path(prompt: str, current: Path) -> Path:
+    raw_path = typer.prompt(prompt, default=str(current)).strip()
+    if not raw_path or raw_path == str(current):
+        return current
+    return Path(raw_path).expanduser()
+
+
+def _prompt_folder_name(prompt: str, current: str) -> str:
+    value = typer.prompt(prompt, default=current).strip()
+    return value or current
+
+
+def _prompt_optional_text(prompt: str, current: str | None) -> str | None:
+    value = typer.prompt(prompt, default=current or "").strip()
+    return value or None
 
 
 def _print_guided_placeholder(name: str) -> None:
@@ -834,8 +957,9 @@ def _save_running_resume_state(
     overwrite: bool,
     timeout: float,
     retries: int,
+    processing_dir: Path,
 ) -> tuple[ResumeStateStore, TranslationResumeState]:
-    store = ResumeStateStore(default_processing_dir())
+    store = ResumeStateStore(processing_dir)
     state = TranslationResumeState.create(
         input_path=epub_path,
         output_path=output_path,
@@ -927,7 +1051,7 @@ def _render_markdown_report(
 
 
 def _default_reports_dir() -> Path:
-    return Path.home() / "Documentos" / "Livros" / "Relatorios"
+    return _reports_dir(_load_existing_config_or_default())
 
 
 def _next_available_report_path(directory: Path, stem: str) -> Path:
@@ -1078,6 +1202,34 @@ def _confirm_existing_preview_overwrite(output_path: Path, mode: UserMode) -> bo
     console.print(f"[yellow]Preview output path:[/yellow] {output_path}")
     console.print("[yellow]Preview EPUB already exists.[/yellow]")
     return typer.confirm("Overwrite existing preview EPUB?", default=False)
+
+
+def _translated_books_dir(config: AyvuConfig) -> Path:
+    if _uses_internal_storage_defaults(config):
+        return default_translated_books_dir()
+    return config.translated_dir
+
+
+def _preview_books_dir(config: AyvuConfig) -> Path:
+    if _uses_internal_storage_defaults(config):
+        return default_preview_books_dir()
+    return config.preview_dir
+
+
+def _reports_dir(config: AyvuConfig) -> Path:
+    if _uses_internal_storage_defaults(config):
+        return Path.home() / "Documentos" / "Livros" / "Relatorios"
+    return config.reports_dir
+
+
+def _processing_dir(config: AyvuConfig) -> Path:
+    if _uses_internal_storage_defaults(config):
+        return default_processing_dir()
+    return config.processing_dir
+
+
+def _uses_internal_storage_defaults(config: AyvuConfig) -> bool:
+    return config.books_dir == Path(DEFAULT_BOOKS_DIR) and config.folders == FolderNames()
 
 
 if __name__ == "__main__":

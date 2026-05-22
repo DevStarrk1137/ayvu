@@ -43,7 +43,7 @@ Abra o menu inicial:
 uv run ayvu
 ```
 
-O menu permite iniciar uma tradução, gerar preview, ver ajuda, abrir biblioteca e acessar configurações. Biblioteca e configurações ainda aparecem como opções indisponíveis na versão atual; elas estão reservadas para os próximos passos do modo comum.
+O menu permite iniciar uma tradução, gerar preview, ver ajuda, abrir biblioteca e acessar configurações. Biblioteca ainda aparece como opção indisponível na versão atual; as configurações já permitem alterar idioma padrão, pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB.
 
 ### Gerar um preview
 
@@ -145,6 +145,16 @@ uv run ayvu translate livro.epub \
 
 Se o processo for interrompido, rode o comando novamente com o mesmo cache. O Ayvu reaproveita os trechos já traduzidos.
 
+### Ajustar configurações
+
+No menu inicial, escolha `Settings` para ver os valores atuais e alterar preferências locais. A pasta base padrão inicial é:
+
+```text
+~/Documentos/Livros
+```
+
+Dentro dela, o Ayvu usa os nomes configurados para previews, traduções finais, relatórios e estados de processamento. Você também pode alterar o nome da pasta `Original`, que segue como convenção para a biblioteca futura, e configurar o app leitor de EPUB para os próximos fluxos de biblioteca.
+
 ### Organizar biblioteca manualmente
 
 A biblioteca guiada ainda não está completa. Enquanto isso, use a estrutura padrão como convenção local:
@@ -158,7 +168,7 @@ A biblioteca guiada ainda não está completa. Enquanto isso, use a estrutura pa
 └── Processando/
 ```
 
-Mantenha EPUBs originais em `Original`, previews em `Preview`, traduções finais em `Traduzidos` e relatórios em `Relatorios`. `Original` é apenas uma convenção manual do usuário por enquanto; o Ayvu ainda não cria nem gerencia essa pasta. O Ayvu já usa algumas dessas pastas nos fluxos atuais.
+Mantenha EPUBs originais em `Original`, previews em `Preview`, traduções finais em `Traduzidos` e relatórios em `Relatorios`. `Original` é apenas uma convenção manual do usuário por enquanto; o Ayvu ainda não cria nem gerencia essa pasta.
 
 ## Tutorial dev: comandos diretos
 
