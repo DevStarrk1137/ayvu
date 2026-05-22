@@ -143,8 +143,9 @@ Ao executar apenas `uv run ayvu`, o Ayvu abre um primeiro menu guiado com opçõ
 livro, gerar preview, abrir biblioteca, acessar configurações, mostrar ajuda ou sair. Biblioteca
 ainda aparece como opção indisponível. A opção `Settings` permite ver e alterar idioma padrão,
 pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB. Nos fluxos
-guiados de tradução e preview, o Ayvu mostra o idioma de destino padrão salvo e permite escolher
-outro código a partir dos idiomas informados pelo LibreTranslate.
+guiados de tradução e preview, o Ayvu mostra o idioma de destino padrão salvo como primeira
+opção. Ao escolher `Outro idioma`, ele lista os idiomas informados pelo LibreTranslate com nome,
+código e estado, permitindo selecionar pela opção exibida ou digitar um código.
 No modo desenvolvedor, o idioma de destino continua sendo definido por `--target`.
 
 Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
