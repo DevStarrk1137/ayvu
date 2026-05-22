@@ -425,6 +425,10 @@ def test_root_command_generates_guided_preview_when_confirmed(tmp_path, monkeypa
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
     monkeypatch.setattr("ayvu.cli.default_preview_books_dir", lambda: preview_dir)
     monkeypatch.setattr(
+        "ayvu.cli.LibreTranslateTranslator",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("languages should not be listed")),
+    )
+    monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
         lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
     )
@@ -432,7 +436,7 @@ def test_root_command_generates_guided_preview_when_confirmed(tmp_path, monkeypa
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1))
 
-    result = runner.invoke(app, [], input=f"2\n{epub_path}\ny\n")
+    result = runner.invoke(app, [], input=f"2\n{epub_path}\n1\n")
 
     options = calls["options"]
     assert result.exit_code == 0
@@ -440,7 +444,9 @@ def test_root_command_generates_guided_preview_when_confirmed(tmp_path, monkeypa
     assert "Generate preview" in result.output
     assert "EPUB path" in result.output
     assert "Default target language:" in result.output
-    assert "Use default target language?" in result.output
+    assert "Use default target language (pt)" in result.output
+    assert "Outro idioma" in result.output
+    assert "Choose target language" in result.output
     assert "Preview output folder:" in result.output
     assert "Preview EPUB name:" in result.output
     assert "Preview salvo em:" in result.output
@@ -482,15 +488,17 @@ def test_root_command_allows_guided_preview_target_from_languages(tmp_path, monk
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1))
 
-    result = runner.invoke(app, [], input=f"2\n{epub_path}\nn\nes\n")
+    result = runner.invoke(app, [], input=f"2\n{epub_path}\n2\n2\n")
 
     options = calls["options"]
     assert result.exit_code == 0
     assert "Default target language:" in result.output
+    assert "Outro idioma" in result.output
     assert "LibreTranslate languages" in result.output
+    assert "Option" in result.output
     assert "Portuguese" in result.output
     assert "Spanish" in result.output
-    assert "Target language code" in result.output
+    assert "Target language option or code" in result.output
     assert calls["target"] == "es"
     assert options.target == "es"
 
@@ -519,13 +527,14 @@ def test_root_command_starts_guided_translation(tmp_path, monkeypatch):
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1))
     monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
 
-    result = runner.invoke(app, [], input=f"1\n{epub_path}\ny\ny\n")
+    result = runner.invoke(app, [], input=f"1\n{epub_path}\n1\ny\n")
 
     options = calls["options"]
     assert result.exit_code == 0
     assert "Translate a book" in result.output
     assert "EPUB path" in result.output
     assert "Default target language:" in result.output
+    assert "Outro idioma" in result.output
     assert "Default output folder:" in result.output
     assert calls["input_path"] == epub_path
     assert calls["output_path"] == output_dir / "book-pt.epub"
@@ -680,7 +689,7 @@ def test_root_command_uses_saved_default_language_in_guided_preview(isolated_con
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
     monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1))
 
-    result = runner.invoke(app, [], input=f"2\n{epub_path}\ny\n")
+    result = runner.invoke(app, [], input=f"2\n{epub_path}\n1\n")
 
     assert result.exit_code == 0
     assert "Default target language:" in result.output

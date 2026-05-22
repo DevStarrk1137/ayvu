@@ -198,7 +198,7 @@ Executar o menu guiado:
 uv run ayvu
 ```
 
-O modo guiado permite iniciar tradução, gerar preview, ver ajuda e acessar placeholders de biblioteca e configurações. Também pode detectar estados locais de tradução interrompida.
+O modo guiado permite iniciar tradução, gerar preview, ver ajuda, acessar configurações e abrir o placeholder de biblioteca. Também pode detectar estados locais de tradução interrompida. Na tradução e no preview guiados, o idioma padrão salvo aparece como primeira opção; ao escolher `Outro idioma`, o Ayvu lista idiomas do LibreTranslate com nome, código e estado.
 
 ## 7. Modos de uso
 

@@ -67,7 +67,7 @@ Abra o preview no seu leitor de EPUB e confira capa, sumário, primeiro capítul
 
 ### Traduzir o livro completo
 
-Pelo menu inicial, escolha traduzir livro e informe o caminho do EPUB. O Ayvu mostra o idioma de destino padrão, permite escolher outro código de idioma e confirma onde o arquivo traduzido será salvo.
+Pelo menu inicial, escolha traduzir livro e informe o caminho do EPUB. O Ayvu mostra o idioma de destino padrão como primeira opção e também oferece `Outro idioma`. Ao escolher outro idioma, ele lista os idiomas do LibreTranslate com nome, código e estado. Depois disso, confirma onde o arquivo traduzido será salvo.
 
 Antes de iniciar uma tradução real, o Ayvu verifica EPUB, idioma, glossário, cache e tradutor. Se algo estiver errado, ele falha cedo com uma mensagem curta e um próximo passo.
 

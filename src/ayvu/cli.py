@@ -46,6 +46,8 @@ GUIDED_LIBRARY_OPTION = "3"
 GUIDED_SETTINGS_OPTION = "4"
 GUIDED_HELP_OPTION = "5"
 GUIDED_EXIT_OPTION = "0"
+GUIDED_DEFAULT_LANGUAGE_OPTION = "1"
+GUIDED_OTHER_LANGUAGE_OPTION = "2"
 SETTINGS_LANGUAGE_OPTION = "1"
 SETTINGS_BOOKS_DIR_OPTION = "2"
 SETTINGS_FOLDERS_OPTION = "3"
@@ -817,21 +819,52 @@ def _print_guided_placeholder(name: str) -> None:
 
 def _choose_guided_target_language(default_target: str) -> str:
     console.print(f"[yellow]Default target language:[/yellow] {default_target}")
-    if typer.confirm("Use default target language?", default=True):
-        return default_target
+    console.print(f"{GUIDED_DEFAULT_LANGUAGE_OPTION}. Use default target language ({default_target})")
+    console.print(f"{GUIDED_OTHER_LANGUAGE_OPTION}. Outro idioma")
 
-    return _prompt_target_language_code(default_target)
+    while True:
+        choice = typer.prompt("Choose target language", default=GUIDED_DEFAULT_LANGUAGE_OPTION).strip()
+        if choice == GUIDED_DEFAULT_LANGUAGE_OPTION:
+            return default_target
+        if choice == GUIDED_OTHER_LANGUAGE_OPTION:
+            return _prompt_target_language_code(default_target)
+        console.print("[red]Invalid option.[/red] Choose 1 or 2.")
 
 
 def _prompt_target_language_code(default_target: str) -> str:
     available_languages = _load_languages_for_guided_selection()
     if available_languages:
-        _print_languages(available_languages)
+        _print_guided_language_choices(available_languages)
     else:
         console.print("Enter a language code manually.")
 
-    target = typer.prompt("Target language code", default=default_target).strip()
+    target = typer.prompt("Target language option or code", default=default_target).strip()
+    selected = _language_code_from_guided_choice(target, available_languages)
+    if selected:
+        return selected
     return target or default_target
+
+
+def _print_guided_language_choices(languages: tuple[TranslatorLanguage, ...]) -> None:
+    table = Table(title="LibreTranslate languages")
+    table.add_column("Option")
+    table.add_column("Language")
+    table.add_column("Code")
+    table.add_column("State")
+
+    for index, language in enumerate(languages, start=1):
+        table.add_row(str(index), language.name, language.code, language.state)
+    console.print(table)
+
+
+def _language_code_from_guided_choice(choice: str, languages: tuple[TranslatorLanguage, ...]) -> str | None:
+    if not choice.isdigit():
+        return None
+
+    index = int(choice)
+    if 1 <= index <= len(languages):
+        return languages[index - 1].code
+    return None
 
 
 def _load_languages_for_guided_selection() -> tuple[TranslatorLanguage, ...]:
