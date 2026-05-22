@@ -30,6 +30,7 @@ livro-extraido/
 .codex
 glossary.json
 *AGENTS*.md
+CLAUDE.md
 GEMINI*.md
 .github/pull_request_template.md
 
