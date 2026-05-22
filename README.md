@@ -141,10 +141,10 @@ em traduções e previews, sem perguntar de novo.
 
 Ao executar apenas `uv run ayvu`, o Ayvu abre um primeiro menu guiado com opções para traduzir
 livro, gerar preview, abrir biblioteca, acessar configurações, mostrar ajuda ou sair. Biblioteca
-ainda aparece como opção indisponível. A opção `Settings` permite ver e alterar o idioma
-padrão, salvando a mudança na configuração (o restante das configurações ainda não está
-pronto). Nos fluxos guiados de tradução e preview, o Ayvu mostra o idioma de destino padrão
-salvo e permite escolher outro código a partir dos idiomas informados pelo LibreTranslate.
+ainda aparece como opção indisponível. A opção `Settings` permite ver e alterar idioma padrão,
+pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB. Nos fluxos
+guiados de tradução e preview, o Ayvu mostra o idioma de destino padrão salvo e permite escolher
+outro código a partir dos idiomas informados pelo LibreTranslate.
 No modo desenvolvedor, o idioma de destino continua sendo definido por `--target`.
 
 Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
@@ -231,7 +231,7 @@ uv run ayvu translate livro.epub \
 Trechos já traduzidos serão reaproveitados automaticamente.
 
 Durante traduções reais, o Ayvu também grava um estado local da execução em
-`~/Documentos/Livros/Processando`. Esse arquivo registra os caminhos e opções
+`~/Documentos/Livros/Processando`, ou na pasta de processamento configurada. Esse arquivo registra os caminhos e opções
 necessários para uma retomada futura. Ele não substitui o cache e não é apagado
 automaticamente.
 
@@ -240,10 +240,9 @@ nessa pasta e oferece retomar uma execução detectada.
 
 ## Configuração
 
-O Ayvu já define um formato inicial para preferências locais. O modo comum já
-usa o campo `default_target_language`: ele é perguntado no primeiro uso e pode
-ser alterado depois pela opção `Settings`. Os demais campos ainda não têm
-interface dedicada. O arquivo fica em:
+O Ayvu define um formato inicial para preferências locais. No modo comum, o primeiro uso pergunta o
+idioma padrão e salva a configuração. Depois, a opção `Settings` permite alterar idioma padrão,
+pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB. O arquivo fica em:
 
 ```text
 $XDG_CONFIG_HOME/ayvu/config.json
@@ -273,11 +272,14 @@ Formato inicial:
 }
 ```
 
-A precedência planejada é:
+A precedência usada pelos fluxos atuais é:
 
 ```text
 argumentos da CLI > arquivo de configuração > padrões internos
 ```
+
+Sem caminhos explícitos, a pasta base e os nomes de pastas configurados definem onde o Ayvu salva
+previews, traduções, relatórios Markdown e estados de processamento.
 
 ## Testes
 

@@ -199,6 +199,34 @@ def test_root_command_shows_processing_translation_state(tmp_path, monkeypatch):
     assert "Canceled." in result.output
 
 
+def test_root_command_uses_configured_processing_dir(isolated_config, tmp_path):
+    books_dir = tmp_path / "Biblioteca"
+    processing_dir = books_dir / "Em-Andamento"
+    state = _resume_state(tmp_path)
+    ResumeStateStore(processing_dir).save(state)
+    isolated_config.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "default_target_language": "pt",
+                "books_dir": str(books_dir),
+                "folders": {"processing": "Em-Andamento"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, [], input="n\n0\n")
+
+    assert result.exit_code == 0
+    assert "Translations in progress were found." in result.output
+    assert "Processing translations" in result.output
+    assert "book.epub" in result.output
+    assert "Detected translation was not resumed." in result.output
+    assert "Canceled." in result.output
+
+
 def test_root_command_in_developer_mode_skips_guided_prompts(tmp_path, monkeypatch):
     epub_path = tmp_path / "book.epub"
     epub_path.write_bytes(b"fake")
@@ -518,24 +546,89 @@ def test_root_command_shows_guided_library_placeholder(tmp_path, monkeypatch):
 def test_root_command_settings_keeps_language_when_not_changed(tmp_path, monkeypatch):
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
 
-    result = runner.invoke(app, [], input="4\nn\n")
+    result = runner.invoke(app, [], input="4\n1\npt\n0\n")
 
     assert result.exit_code == 0
-    assert "Current default language:" in result.output
-    assert "Change default language?" in result.output
-    assert "Default language unchanged." in result.output
+    assert "Settings" in result.output
+    assert "Default target language" in result.output
+    assert "Change default language" in result.output
+    assert "Settings unchanged." in result.output
+    assert "Settings closed." in result.output
 
 
 def test_root_command_settings_changes_and_persists_language(isolated_config, tmp_path, monkeypatch):
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
     monkeypatch.setattr("ayvu.cli.LibreTranslateTranslator", FakeNoLanguagesTranslator)
 
-    result = runner.invoke(app, [], input="4\ny\nes\n")
+    result = runner.invoke(app, [], input="4\n1\nes\n0\n")
 
     assert result.exit_code == 0
-    assert "Default language saved:" in result.output
+    assert "Settings saved." in result.output
     saved = json.loads(isolated_config.read_text(encoding="utf-8"))
     assert saved["default_target_language"] == "es"
+
+
+def test_root_command_settings_changes_books_dir(isolated_config, tmp_path, monkeypatch):
+    books_dir = tmp_path / "Minha Biblioteca"
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(app, [], input=f"4\n2\n{books_dir}\n0\n")
+
+    assert result.exit_code == 0
+    assert "Books folder" in result.output
+    assert "Settings saved." in result.output
+    saved = json.loads(isolated_config.read_text(encoding="utf-8"))
+    assert saved["books_dir"] == str(books_dir)
+
+
+def test_root_command_settings_changes_feature_folder_names(isolated_config, tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(
+        app,
+        [],
+        input="4\n3\nOriginais\nPT\nAmostras\nRelatorios-MD\nEm-Andamento\n0\n",
+    )
+
+    assert result.exit_code == 0
+    assert "Change feature folder names" in result.output
+    assert "Settings saved." in result.output
+    saved = json.loads(isolated_config.read_text(encoding="utf-8"))
+    assert saved["folders"] == {
+        "original": "Originais",
+        "translated": "PT",
+        "preview": "Amostras",
+        "reports": "Relatorios-MD",
+        "processing": "Em-Andamento",
+    }
+
+
+def test_root_command_settings_rejects_folder_paths(isolated_config, tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(
+        app,
+        [],
+        input="4\n3\nOriginais\nLivros/PT\nAmostras\nRelatorios\nProcessando\n0\n",
+    )
+
+    assert result.exit_code == 0
+    assert "Invalid folder name:" in result.output
+    saved = json.loads(isolated_config.read_text(encoding="utf-8"))
+    assert saved["default_target_language"] == "pt"
+    assert "folders" not in saved
+
+
+def test_root_command_settings_changes_reader_app(isolated_config, tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(app, [], input="4\n4\nfoliate\n0\n")
+
+    assert result.exit_code == 0
+    assert "Reader app" in result.output
+    assert "Settings saved." in result.output
+    saved = json.loads(isolated_config.read_text(encoding="utf-8"))
+    assert saved["reader_app"] == "foliate"
 
 
 def test_root_command_first_use_asks_and_saves_default_language(isolated_config, tmp_path, monkeypatch):
@@ -659,6 +752,51 @@ def test_preview_option_generates_preview_with_default_settings(tmp_path, monkey
     assert options.max_documents == DEFAULT_PREVIEW_DOCUMENT_LIMIT
 
 
+def test_preview_option_uses_configured_preview_dir(isolated_config, tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    books_dir = tmp_path / "Biblioteca"
+    epub_path.write_bytes(b"fake epub")
+    calls: dict[str, object] = {}
+    isolated_config.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "default_target_language": "pt",
+                "books_dir": str(books_dir),
+                "folders": {"preview": "Amostras"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def fake_translate(input_path: Path, output_path: Path, **kwargs: object) -> TranslationReport:
+        calls["input_path"] = input_path
+        calls["output_path"] = output_path
+        calls["options"] = kwargs["options"]
+        return TranslationReport(output_path=output_path, input_path=input_path, target_language="pt")
+
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+    )
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr(
+        "ayvu.cli.validate_output_epub",
+        lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1),
+    )
+
+    result = runner.invoke(app, ["--preview", str(epub_path)])
+
+    output_path = books_dir / "Amostras" / "book-preview.epub"
+    assert result.exit_code == 0
+    assert str(output_path.parent) in result.output.replace("\n", "")
+    assert calls["input_path"] == epub_path
+    assert calls["output_path"] == output_path
+    assert calls["options"].max_documents == DEFAULT_PREVIEW_DOCUMENT_LIMIT
+
+
 def test_translate_command_stops_when_preflight_fails(tmp_path, monkeypatch):
     epub_path = tmp_path / "book.epub"
     epub_path.write_bytes(b"fake epub")
@@ -725,6 +863,57 @@ def test_translate_command_confirms_default_output_location(tmp_path, monkeypatc
     assert "book-pt.epub" in result.output
     assert "Original EPUB stays in Original:" in result.output
     assert "Keep this output location?" in result.output
+    assert calls["input_path"] == epub_path
+    assert calls["output_path"] == output_path
+    assert resume_state.output_path == output_path.resolve()
+
+
+def test_translate_command_uses_configured_output_and_processing_dirs(isolated_config, tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    books_dir = tmp_path / "Biblioteca"
+    epub_path.write_bytes(b"fake epub")
+    calls: dict[str, Path] = {}
+    isolated_config.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "default_target_language": "pt",
+                "books_dir": str(books_dir),
+                "folders": {
+                    "translated": "PT",
+                    "processing": "Em-Andamento",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def fake_translate(input_path: Path, output_path: Path, **_kwargs: object) -> TranslationReport:
+        calls["input_path"] = input_path
+        calls["output_path"] = output_path
+        return TranslationReport(output_path=output_path, input_path=input_path, target_language="pt")
+
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+    )
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr(
+        "ayvu.cli.validate_output_epub",
+        lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1),
+    )
+    monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
+
+    result = runner.invoke(app, ["--mode", "common", "translate", str(epub_path)], input="y\n")
+
+    output_path = books_dir / "PT" / "book-pt.epub"
+    processing_dir = books_dir / "Em-Andamento"
+    state_path = processing_dir / "book-pt.ayvu-state.json"
+    resume_state = ResumeStateStore(processing_dir).load(state_path)
+    assert result.exit_code == 0
+    assert str(output_path.parent) in result.output.replace("\n", "")
     assert calls["input_path"] == epub_path
     assert calls["output_path"] == output_path
     assert resume_state.output_path == output_path.resolve()
@@ -930,6 +1119,32 @@ def test_save_markdown_report_uses_default_reports_dir_without_overwriting(tmp_p
     assert second_path == reports_dir / "book-pt-report-2.md"
     assert first_path.read_text(encoding="utf-8").startswith("# Translation report")
     assert second_path.read_text(encoding="utf-8").startswith("# Translation report")
+
+
+def test_save_markdown_report_uses_configured_reports_dir(isolated_config, tmp_path):
+    books_dir = tmp_path / "Biblioteca"
+    isolated_config.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "default_target_language": "pt",
+                "books_dir": str(books_dir),
+                "folders": {"reports": "Relatorios-MD"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    report = TranslationReport(
+        output_path=Path("book-pt.epub"),
+        input_path=Path("book.epub"),
+        target_language="pt",
+    )
+
+    report_path = _save_markdown_report(report, dry_run=False)
+
+    assert report_path == books_dir / "Relatorios-MD" / "book-pt-report.md"
+    assert report_path.read_text(encoding="utf-8").startswith("# Translation report")
 
 
 def test_offer_markdown_report_does_not_save_when_declined(monkeypatch):
