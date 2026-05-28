@@ -45,7 +45,7 @@ uv run ayvu
 
 O menu permite iniciar uma tradução, gerar preview, ver ajuda, abrir biblioteca e acessar configurações. A biblioteca lista EPUBs das pastas configuradas para originais e traduções, mostra as versões disponíveis e permite abrir o arquivo escolhido no leitor configurado ou no leitor padrão detectado no sistema. As configurações permitem alterar idioma padrão, pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB.
 
-No primeiro uso, o Ayvu pergunta o idioma padrão de leitura/tradução e a pasta base dos livros. Essa pasta é usada para organizar biblioteca, previews, relatórios, traduções e estados de processamento.
+No primeiro uso, o Ayvu pergunta o idioma padrão de leitura/tradução e a pasta base dos livros. Em seguida, mostra os nomes das pastas das funcionalidades e permite manter os padrões ou alterá-los uma única vez antes de salvar a configuração. Essa pasta é usada para organizar biblioteca, previews, relatórios, traduções e estados de processamento.
 
 ### Gerar um preview
 
