@@ -324,7 +324,7 @@ def test_root_command_resumes_detected_translation_when_confirmed(tmp_path, monk
 
     def fake_preflight(**kwargs: object) -> object:
         calls["preflight"] = kwargs
-        return SimpleNamespace(translator=object(), glossary=None)
+        return SimpleNamespace(translator=object(), glossary=None, route=None)
 
     def fake_translate(*_args: object, **kwargs: object) -> TranslationReport:
         calls["translation_options"] = kwargs["options"]
@@ -432,7 +432,7 @@ def test_root_command_generates_guided_preview_when_confirmed(tmp_path, monkeypa
     )
     monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
-        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
     )
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
@@ -476,7 +476,7 @@ def test_root_command_allows_guided_preview_target_from_languages(tmp_path, monk
 
     def fake_preflight(**kwargs: object) -> object:
         calls["target"] = kwargs["language_pair"].target
-        return SimpleNamespace(translator=object(), glossary=None)
+        return SimpleNamespace(translator=object(), glossary=None, route=None)
 
     def fake_translate(_input_path: Path, _output_path: Path, **kwargs: object) -> TranslationReport:
         calls["options"] = kwargs["options"]
@@ -522,7 +522,7 @@ def test_root_command_starts_guided_translation(tmp_path, monkeypatch):
     monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: output_dir)
     monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
-        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
     )
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
@@ -806,7 +806,7 @@ def test_root_command_uses_saved_default_language_in_guided_preview(isolated_con
 
     def fake_preflight(**kwargs: object) -> object:
         calls["target"] = kwargs["language_pair"].target
-        return SimpleNamespace(translator=object(), glossary=None)
+        return SimpleNamespace(translator=object(), glossary=None, route=None)
 
     def fake_translate(_input_path: Path, _output_path: Path, **kwargs: object) -> TranslationReport:
         calls["options"] = kwargs["options"]
@@ -857,7 +857,7 @@ def test_preview_option_generates_preview_with_default_settings(tmp_path, monkey
 
     def fake_preflight(**kwargs: object) -> object:
         calls["preflight"] = kwargs
-        return SimpleNamespace(translator=object(), glossary=None)
+        return SimpleNamespace(translator=object(), glossary=None, route=None)
 
     def fake_translate(input_path: Path, output_path: Path, **kwargs: object) -> TranslationReport:
         calls["input_path"] = input_path
@@ -917,7 +917,7 @@ def test_preview_option_uses_configured_preview_dir(isolated_config, tmp_path, m
 
     monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
-        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
     )
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
@@ -983,7 +983,7 @@ def test_translate_command_confirms_default_output_location(tmp_path, monkeypatc
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
     monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
-        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
     )
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
@@ -1035,7 +1035,7 @@ def test_translate_command_uses_configured_output_and_processing_dirs(isolated_c
 
     monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
-        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
     )
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
@@ -1074,7 +1074,7 @@ def test_translate_command_allows_custom_output_path_from_default_prompt(tmp_pat
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
     monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
-        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
     )
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
@@ -1127,7 +1127,7 @@ def test_translate_command_allows_another_name_when_output_exists(tmp_path, monk
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
     monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
-        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
     )
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
@@ -1320,7 +1320,7 @@ def test_translate_command_offers_and_saves_markdown_report(tmp_path, monkeypatc
     )
     monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
-        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
     )
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", lambda *_args, **_kwargs: report)
@@ -1371,7 +1371,7 @@ def test_translate_command_puts_validation_warnings_in_report_and_markdown(tmp_p
     warning = "Capítulo sem texto visível: text/empty.xhtml"
     monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
-        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
     )
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", lambda *_args, **_kwargs: report)
@@ -1414,7 +1414,7 @@ def test_translate_command_handles_keyboard_interrupt_cleanly(tmp_path, monkeypa
 
     monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
-        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None),
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
     )
     monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
     monkeypatch.setattr("ayvu.cli.translate_epub", interrupt_translation)
@@ -1503,7 +1503,7 @@ def test_extract_command_reports_invalid_epub_without_traceback(tmp_path):
 def _mock_translation_pipeline(monkeypatch, calls: dict[str, object]) -> None:
     def fake_preflight(**kwargs: object) -> object:
         calls["preflight"] = kwargs
-        return SimpleNamespace(translator=object(), glossary=None)
+        return SimpleNamespace(translator=object(), glossary=None, route=None)
 
     def fake_translate(input_path: Path, output_path: Path, **kwargs: object) -> TranslationReport:
         calls["options"] = kwargs["options"]
@@ -1591,3 +1591,82 @@ def test_translate_common_mode_shows_detected_source_hint(minimal_epub_path, tmp
     assert result.exit_code == 0
     assert "Translation plan" in result.output
     assert "Idioma de origem detectado do EPUB: en" in result.output
+
+
+def _mock_pipeline_with_route(monkeypatch, route):
+    from ayvu.epub_io import TranslationReport as _Report
+
+    def fake_preflight(**_kwargs: object) -> object:
+        return SimpleNamespace(translator=object(), glossary=None, route=route)
+
+    def fake_translate(input_path, output_path, **kwargs) -> _Report:
+        return _Report(
+            output_path=output_path,
+            input_path=input_path,
+            detected_language=kwargs["options"].source,
+            target_language=kwargs["options"].target,
+        )
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fake_preflight)
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr(
+        "ayvu.cli.validate_output_epub",
+        lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1),
+    )
+    monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
+
+
+def test_translate_developer_mode_prints_direct_route(minimal_epub_path, tmp_path, monkeypatch):
+    from ayvu.translator import TranslationRoute
+
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    _mock_pipeline_with_route(monkeypatch, TranslationRoute(source="en", target="pt"))
+
+    result = runner.invoke(app, ["--mode", "developer", "translate", str(minimal_epub_path)])
+
+    assert result.exit_code == 0
+    assert "Route: en -> pt" in result.output
+    assert "intermediário" not in result.output
+
+
+def test_translate_developer_mode_prints_intermediate_route_with_warning(
+    minimal_epub_path, tmp_path, monkeypatch
+):
+    from ayvu.translator import TranslationRoute
+
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    _mock_pipeline_with_route(
+        monkeypatch, TranslationRoute(source="fr", target="pt", intermediate="en")
+    )
+
+    result = runner.invoke(
+        app,
+        ["--mode", "developer", "translate", str(minimal_epub_path), "--source", "fr"],
+    )
+
+    assert result.exit_code == 0
+    assert "Route: fr -> en -> pt" in result.output
+    assert "qualidade pode ficar comprometida" in result.output
+
+
+def test_translate_common_mode_warns_about_intermediate_route(
+    minimal_epub_path, tmp_path, monkeypatch
+):
+    from ayvu.translator import TranslationRoute
+
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    _mock_pipeline_with_route(
+        monkeypatch, TranslationRoute(source="fr", target="pt", intermediate="en")
+    )
+
+    result = runner.invoke(
+        app,
+        ["--mode", "common", "translate", str(minimal_epub_path), "--source", "fr"],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+    assert "A tradução passará por 2 etapas" in result.output
+    assert "fr -> en -> pt" in result.output
+    assert "qualidade pode ficar comprometida" in result.output

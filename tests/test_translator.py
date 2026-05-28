@@ -3,7 +3,16 @@ from __future__ import annotations
 import requests
 import pytest
 
-from ayvu.translator import LibreTranslateTranslator, TranslatorError
+from ayvu.translator import (
+    LibreTranslateTranslator,
+    RouteResolutionError,
+    RoutedTranslator,
+    TranslationRoute,
+    Translator,
+    TranslatorError,
+    TranslatorLanguage,
+    resolve_translation_route,
+)
 
 
 class FakeSession:
@@ -210,3 +219,88 @@ def test_libretranslate_reports_languages_http_error() -> None:
         translator.list_languages()
 
     assert "LibreTranslate HTTP error 500: broken" in str(error.value)
+
+
+def _language(code: str, targets: tuple[str, ...]) -> TranslatorLanguage:
+    return TranslatorLanguage(code=code, name=code.upper(), targets=targets)
+
+
+def test_resolve_translation_route_finds_direct_route() -> None:
+    languages = (_language("en", ("pt", "es")), _language("pt", ("en",)))
+
+    route = resolve_translation_route(languages, "en", "pt")
+
+    assert route.is_direct
+    assert route.describe() == "en -> pt"
+
+
+def test_resolve_translation_route_uses_english_bridge_when_direct_missing() -> None:
+    languages = (
+        _language("fr", ("en",)),
+        _language("en", ("pt",)),
+        _language("pt", ("en",)),
+    )
+
+    route = resolve_translation_route(languages, "fr", "pt")
+
+    assert not route.is_direct
+    assert route.intermediate == "en"
+    assert route.describe() == "fr -> en -> pt"
+
+
+def test_resolve_translation_route_raises_when_no_route_available() -> None:
+    languages = (_language("fr", ("de",)), _language("pt", ()))
+
+    with pytest.raises(RouteResolutionError):
+        resolve_translation_route(languages, "fr", "pt")
+
+
+def test_resolve_translation_route_returns_direct_when_source_equals_target() -> None:
+    languages: tuple[TranslatorLanguage, ...] = ()
+
+    route = resolve_translation_route(languages, "pt", "pt")
+
+    assert route.is_direct
+
+
+class RecordingTranslator(Translator):
+    def __init__(self, responses: dict[tuple[str, str], str] | None = None) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+        self._responses = responses or {}
+
+    def translate(self, text: str, source: str, target: str) -> str:
+        self.calls.append((text, source, target))
+        suffix = self._responses.get((source, target), target.upper())
+        return f"{text}|{suffix}"
+
+
+def test_routed_translator_forwards_single_call_for_direct_route() -> None:
+    base = RecordingTranslator()
+    route = TranslationRoute(source="en", target="pt")
+    translator = RoutedTranslator(base, route)
+
+    result = translator.translate("Hello", "en", "pt")
+
+    assert result == "Hello|PT"
+    assert base.calls == [("Hello", "en", "pt")]
+
+
+def test_routed_translator_chains_through_intermediate_language() -> None:
+    base = RecordingTranslator()
+    route = TranslationRoute(source="fr", target="pt", intermediate="en")
+    translator = RoutedTranslator(base, route)
+
+    result = translator.translate("Bonjour", "fr", "pt")
+
+    assert base.calls == [("Bonjour", "fr", "en"), ("Bonjour|EN", "en", "pt")]
+    assert result == "Bonjour|EN|PT"
+
+
+def test_routed_translator_bypasses_intermediate_for_other_pairs() -> None:
+    base = RecordingTranslator()
+    route = TranslationRoute(source="fr", target="pt", intermediate="en")
+    translator = RoutedTranslator(base, route)
+
+    translator.translate("Hello", "en", "pt")
+
+    assert base.calls == [("Hello", "en", "pt")]

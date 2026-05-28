@@ -160,6 +160,8 @@ No modo desenvolvedor, o idioma de destino continua sendo definido por `--target
 
 Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
 
+O Ayvu também resolve a rota de tradução consultando os idiomas do LibreTranslate: se não houver caminho direto entre origem e destino, tenta uma rota intermediária via inglês (por exemplo `fr -> en -> pt`). Quando a rota intermediária é usada, o modo comum avisa que a tradução passará por 2 etapas e que a qualidade pode ficar comprometida; o modo desenvolvedor mostra a rota explicitamente. Se nenhuma rota estiver disponível, o comando falha antes de processar o EPUB.
+
 Sem `--output`, o Ayvu salva por padrão em:
 
 ```text
