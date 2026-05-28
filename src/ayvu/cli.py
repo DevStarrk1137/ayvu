@@ -611,9 +611,15 @@ def _init_default_language_config(store: ConfigStore) -> AyvuConfig:
     console.print("[yellow]Primeiro uso do modo comum.[/yellow]")
     console.print("Escolha o idioma padrão de leitura/tradução. Você poderá alterá-lo depois em Settings.")
     language = _prompt_target_language_code(DEFAULT_TARGET_LANGUAGE)
-    config = AyvuConfig(default_target_language=language)
+    console.print(
+        "Escolha a pasta base dos livros. "
+        "O Ayvu usará essa pasta para biblioteca, previews, relatórios e traduções."
+    )
+    books_dir = _prompt_path("Books folder", Path(DEFAULT_BOOKS_DIR))
+    config = AyvuConfig(default_target_language=language, books_dir=books_dir)
     if _save_config(store, config):
         console.print(f"[green]Idioma padrão salvo:[/green] {language}")
+        console.print(f"[green]Pasta base salva:[/green] {books_dir}")
     return config
 
 
