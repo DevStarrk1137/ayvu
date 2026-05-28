@@ -13,6 +13,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Nome de saída automático baseado no idioma de destino.
 - Preview traduzido de uma amostra inicial do EPUB.
 - Modo comum guiado e modo desenvolvedor direto.
+- Biblioteca inicial para listar originais e traduções e abrir EPUBs no leitor configurado ou padrão do sistema.
 - Checagens internas antes de iniciar traduções reais.
 - Modo `dry-run` para simular o processamento sem gerar arquivo.
 - Extração de texto visível para Markdown.
@@ -140,9 +141,11 @@ salva na configuração. Nas próximas execuções esse idioma é usado como des
 em traduções e previews, sem perguntar de novo.
 
 Ao executar apenas `uv run ayvu`, o Ayvu abre um primeiro menu guiado com opções para traduzir
-livro, gerar preview, abrir biblioteca, acessar configurações, mostrar ajuda ou sair. Biblioteca
-ainda aparece como opção indisponível. A opção `Settings` permite ver e alterar idioma padrão,
-pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB. Nos fluxos
+livro, gerar preview, abrir biblioteca, acessar configurações, mostrar ajuda ou sair. A biblioteca
+lista EPUBs das pastas `Original` e `Traduzidos`, mostra as versões disponíveis de cada livro e
+permite abrir o original ou uma tradução no leitor configurado ou no leitor padrão detectado no
+sistema. A opção `Settings` permite ver e alterar idioma padrão, pasta base dos livros, nomes das
+pastas das funcionalidades e app leitor de EPUB. Nos fluxos
 guiados de tradução e preview, o Ayvu mostra o idioma de destino padrão salvo como primeira
 opção. Ao escolher `Outro idioma`, ele lista os idiomas informados pelo LibreTranslate com nome,
 código e estado, permitindo selecionar pela opção exibida ou digitar um código.
@@ -239,6 +242,28 @@ automaticamente.
 Ao executar `uv run ayvu`, o modo comum procura estados de tradução em andamento
 nessa pasta e oferece retomar uma execução detectada.
 
+## Biblioteca
+
+A biblioteca inicial usa a pasta base configurada, por padrão:
+
+```text
+~/Documentos/Livros
+```
+
+Com os nomes padrão, os EPUBs ficam organizados assim:
+
+```text
+~/Documentos/Livros/
+├── Original/
+└── Traduzidos/
+```
+
+Coloque EPUBs originais em `Original` e traduções finais em `Traduzidos`. Ao escolher
+`Open library` no menu comum, o Ayvu lista os livros em ordem alfabética, mostra se existe
+original e quais traduções foram encontradas, permite ver informações do livro e abre a versão
+selecionada no app leitor. Se nenhum leitor padrão for detectado, configure o comando do leitor em
+`Settings` no campo `Reader app`.
+
 ## Configuração
 
 O Ayvu define um formato inicial para preferências locais. No modo comum, o primeiro uso pergunta o
@@ -280,7 +305,9 @@ argumentos da CLI > arquivo de configuração > padrões internos
 ```
 
 Sem caminhos explícitos, a pasta base e os nomes de pastas configurados definem onde o Ayvu salva
-previews, traduções, relatórios Markdown e estados de processamento.
+previews, traduções, relatórios Markdown e estados de processamento, além das pastas usadas pela
+biblioteca. O campo `reader_app` define o comando usado para abrir EPUBs pela biblioteca quando o
+leitor padrão do sistema não for suficiente.
 
 ## Testes
 

@@ -2,7 +2,7 @@
 
 Este documento registra o estado técnico atual do Ayvu, as decisões principais de arquitetura, os fluxos implementados e os próximos riscos conhecidos.
 
-Última atualização: 2026-05-15.
+Última atualização: 2026-05-22.
 
 ## 1. Objetivo do projeto
 
@@ -42,13 +42,13 @@ O Ayvu já possui:
 - retomada local de traduções interrompidas;
 - comando para listar idiomas do LibreTranslate;
 - formato inicial de configuração local;
+- biblioteca inicial para listar originais e traduções e abrir EPUBs no leitor configurado ou padrão do sistema;
 - validação do EPUB gerado com barra de progresso e avisos de capítulo vazio, link interno quebrado e imagem ausente;
 - testes automatizados e CI no GitHub Actions.
 
 Ainda não possui:
 
-- interface completa para editar configurações persistentes do Ayvu;
-- biblioteca completa de livros;
+- biblioteca completa com importação automática, fila e histórico;
 - gerenciamento automático do LibreTranslate;
 - tradução por bloco preservando tags internas;
 - validação EPUB avançada com EPUBCheck;
@@ -79,6 +79,7 @@ ayvu/
 │       ├── epub_io.py
 │       ├── glossary.py
 │       ├── html_translate.py
+│       ├── library.py
 │       ├── preflight.py
 │       ├── resume.py
 │       ├── translator.py
@@ -93,6 +94,7 @@ ayvu/
 │   ├── test_epub_io.py
 │   ├── test_glossary.py
 │   ├── test_html_translate.py
+│   ├── test_library.py
 │   ├── test_preflight.py
 │   ├── test_resume.py
 │   ├── test_translator.py
@@ -198,7 +200,7 @@ Executar o menu guiado:
 uv run ayvu
 ```
 
-O modo guiado permite iniciar tradução, gerar preview, ver ajuda, acessar configurações e abrir o placeholder de biblioteca. Também pode detectar estados locais de tradução interrompida. Na tradução e no preview guiados, o idioma padrão salvo aparece como primeira opção; ao escolher `Outro idioma`, o Ayvu lista idiomas do LibreTranslate com nome, código e estado.
+O modo guiado permite iniciar tradução, gerar preview, ver ajuda, acessar configurações e abrir a biblioteca inicial. Também pode detectar estados locais de tradução interrompida. Na tradução e no preview guiados, o idioma padrão salvo aparece como primeira opção; ao escolher `Outro idioma`, o Ayvu lista idiomas do LibreTranslate com nome, código e estado. A biblioteca lista livros das pastas configuradas de originais e traduções, mostra versões disponíveis e abre o EPUB escolhido no leitor configurado ou no leitor padrão detectado no sistema.
 
 ## 7. Modos de uso
 
@@ -224,6 +226,8 @@ uv run ayvu --mode common translate livro.epub
 `src/ayvu/epub_io.py` cuida de leitura, inspeção, extração, tradução estrutural e escrita do EPUB final.
 
 `src/ayvu/html_translate.py` traduz HTML/XHTML em nível de nó de texto visível, preservando tags e ignorando conteúdo que não deve ser traduzido.
+
+`src/ayvu/library.py` varre as pastas de biblioteca configuradas, agrupa EPUB original e traduções por livro e resolve o comando usado para abrir EPUBs no app leitor.
 
 `src/ayvu/translator.py` define o contrato `Translator` e o backend `LibreTranslateTranslator`.
 
@@ -281,7 +285,7 @@ A precedência usada pelos fluxos atuais é:
 argumentos da CLI > arquivo de configuração > padrões internos
 ```
 
-Hoje a configuração já alimenta os diretórios padrão de preview, traduções, relatórios Markdown e estados de processamento. O app leitor fica salvo para os fluxos de biblioteca.
+Hoje a configuração já alimenta os diretórios padrão de preview, traduções, relatórios Markdown, estados de processamento e biblioteca. O app leitor configurado é usado pela biblioteca ao abrir EPUBs.
 
 ## 10. Pipeline de EPUB
 

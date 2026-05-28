@@ -14,6 +14,7 @@ from ayvu.cli import (
 )
 from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions, UserMode
 from ayvu.epub_io import TranslationReport
+from ayvu.library import LibraryOpenError
 from ayvu.preflight import PreflightError
 from ayvu.resume import COMPLETED_STATUS, ResumeStateStore, TranslationResumeState
 from ayvu.translator import TranslatorError, TranslatorLanguage
@@ -541,15 +542,107 @@ def test_root_command_starts_guided_translation(tmp_path, monkeypatch):
     assert options.target == "pt"
 
 
-def test_root_command_shows_guided_library_placeholder(tmp_path, monkeypatch):
-    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+def test_root_command_shows_empty_guided_library(isolated_config, tmp_path):
+    books_dir = tmp_path / "Biblioteca"
+    isolated_config.write_text(
+        json.dumps({"version": 1, "default_target_language": "pt", "books_dir": str(books_dir)}) + "\n",
+        encoding="utf-8",
+    )
 
     result = runner.invoke(app, [], input="3\n")
 
     assert result.exit_code == 0
     assert "Open library" in result.output
-    assert "Library is not available yet." in result.output
-    assert "Use the command help" in result.output
+    assert "Library has no EPUB books yet." in result.output
+    assert str(books_dir / "Original") in result.output.replace("\n", "")
+    assert str(books_dir / "Traduzidos") in result.output.replace("\n", "")
+
+
+def test_root_command_opens_library_translation(isolated_config, tmp_path, monkeypatch):
+    books_dir = tmp_path / "Biblioteca"
+    original_dir = books_dir / "Original"
+    translated_dir = books_dir / "Traduzidos"
+    original_dir.mkdir(parents=True)
+    translated_dir.mkdir()
+    (original_dir / "Book.epub").write_bytes(b"")
+    translated_path = translated_dir / "Book-pt.epub"
+    translated_path.write_bytes(b"")
+    isolated_config.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "default_target_language": "pt",
+                "books_dir": str(books_dir),
+                "reader_app": "foliate",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    opened: dict[str, object] = {}
+
+    def fake_open(path: Path, reader_app: str | None = None) -> None:
+        opened["path"] = path
+        opened["reader_app"] = reader_app
+
+    monkeypatch.setattr("ayvu.cli.open_library_epub", fake_open)
+
+    result = runner.invoke(app, [], input="3\n1\n2\n")
+
+    assert result.exit_code == 0
+    assert "Library" in result.output
+    assert "Book" in result.output
+    assert "Traduzido - Português" in result.output
+    assert "Open Traduzido - Português" in result.output
+    assert opened == {"path": translated_path, "reader_app": "foliate"}
+
+
+def test_root_command_shows_library_book_information(isolated_config, tmp_path):
+    books_dir = tmp_path / "Biblioteca"
+    original_dir = books_dir / "Original"
+    translated_dir = books_dir / "Traduzidos"
+    original_dir.mkdir(parents=True)
+    translated_dir.mkdir()
+    original_path = original_dir / "Book.epub"
+    translated_path = translated_dir / "Book-pt.epub"
+    original_path.write_bytes(b"")
+    translated_path.write_bytes(b"")
+    isolated_config.write_text(
+        json.dumps({"version": 1, "default_target_language": "pt", "books_dir": str(books_dir)}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, [], input="3\n1\n3\n0\n")
+
+    assert result.exit_code == 0
+    assert "Book information" in result.output
+    assert "Original EPUB" in result.output
+    assert "Translations" in result.output
+    assert "Traduzido - Português" in result.output
+    assert "Translation files" in result.output
+
+
+def test_root_command_reports_library_open_failure(isolated_config, tmp_path, monkeypatch):
+    books_dir = tmp_path / "Biblioteca"
+    original_dir = books_dir / "Original"
+    original_dir.mkdir(parents=True)
+    (original_dir / "Book.epub").write_bytes(b"")
+    isolated_config.write_text(
+        json.dumps({"version": 1, "default_target_language": "pt", "books_dir": str(books_dir)}) + "\n",
+        encoding="utf-8",
+    )
+
+    def fail_open(_path: Path, reader_app: str | None = None) -> None:
+        raise LibraryOpenError("No EPUB reader app is configured or available on this system.")
+
+    monkeypatch.setattr("ayvu.cli.open_library_epub", fail_open)
+
+    result = runner.invoke(app, [], input="3\n1\n1\n")
+
+    assert result.exit_code == 0
+    assert "Could not open EPUB:" in result.output
+    assert "No EPUB reader app" in result.output
+    assert "Configure Reader app in Settings" in result.output
 
 
 def test_root_command_settings_keeps_language_when_not_changed(tmp_path, monkeypatch):

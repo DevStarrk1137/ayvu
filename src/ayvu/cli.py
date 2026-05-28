@@ -21,6 +21,7 @@ from .domain import (
     default_translated_books_dir,
 )
 from .epub_io import TranslationReport, extract_markdown, inspect_epub, translate_epub
+from .library import LibraryBook, LibraryOpenError, open_library_epub, scan_library
 from .preflight import PreflightError, run_translation_preflight
 from .resume import (
     InvalidResumeState,
@@ -48,6 +49,7 @@ GUIDED_HELP_OPTION = "5"
 GUIDED_EXIT_OPTION = "0"
 GUIDED_DEFAULT_LANGUAGE_OPTION = "1"
 GUIDED_OTHER_LANGUAGE_OPTION = "2"
+LIBRARY_BACK_OPTION = "0"
 SETTINGS_LANGUAGE_OPTION = "1"
 SETTINGS_BOOKS_DIR_OPTION = "2"
 SETTINGS_FOLDERS_OPTION = "3"
@@ -648,7 +650,7 @@ def _handle_guided_main_choice(choice: str, ctx: typer.Context, config: AyvuConf
         return True
 
     if choice == GUIDED_LIBRARY_OPTION:
-        _print_guided_placeholder("Library")
+        _run_guided_library(config)
         return True
 
     if choice == GUIDED_SETTINGS_OPTION:
@@ -695,6 +697,124 @@ def _run_guided_preview(config: AyvuConfig) -> None:
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
     target = _choose_guided_target_language(config.default_target_language)
     _run_preview(epub_path, target=target, mode=UserMode.COMMON, config=config)
+
+
+def _run_guided_library(config: AyvuConfig) -> None:
+    books = scan_library(config)
+    if not books:
+        console.print("[yellow]Library has no EPUB books yet.[/yellow]")
+        console.print(f"Original folder: {config.original_dir}")
+        console.print(f"Translated folder: {config.translated_dir}")
+        return
+
+    _print_library_books(books)
+    book = _prompt_library_book(books)
+    if book is None:
+        return
+    _run_guided_library_book(config, book)
+
+
+def _print_library_books(books: tuple[LibraryBook, ...]) -> None:
+    table = Table(title="Library")
+    table.add_column("Option")
+    table.add_column("Book")
+    table.add_column("Original")
+    table.add_column("Translations")
+
+    for index, book in enumerate(books, start=1):
+        table.add_row(
+            str(index),
+            book.name,
+            "yes" if book.has_original else "-",
+            _display_book_translations(book),
+        )
+    console.print(table)
+    console.print(f"{LIBRARY_BACK_OPTION}. Back")
+
+
+def _prompt_library_book(books: tuple[LibraryBook, ...]) -> LibraryBook | None:
+    while True:
+        choice = typer.prompt("Choose a book", default=LIBRARY_BACK_OPTION).strip()
+        if choice == LIBRARY_BACK_OPTION:
+            console.print("Library closed.")
+            return None
+        if choice.isdigit() and 1 <= int(choice) <= len(books):
+            return books[int(choice) - 1]
+        console.print(f"[red]Invalid book.[/red] Choose 1-{len(books)} or 0.")
+
+
+def _run_guided_library_book(config: AyvuConfig, book: LibraryBook) -> None:
+    while True:
+        actions = _library_book_actions(book)
+        _print_library_book_actions(book, actions)
+        choice = typer.prompt("Choose a library action", default=LIBRARY_BACK_OPTION).strip()
+        if choice == LIBRARY_BACK_OPTION:
+            console.print("Back to library.")
+            return
+        if not choice.isdigit() or not 1 <= int(choice) <= len(actions):
+            console.print(f"[red]Invalid action.[/red] Choose 1-{len(actions)} or 0.")
+            continue
+
+        label, path = actions[int(choice) - 1]
+        if path is None:
+            _print_library_book_info(book)
+            continue
+        _open_library_book_path(path, config, label)
+        return
+
+
+def _library_book_actions(book: LibraryBook) -> list[tuple[str, Path | None]]:
+    actions: list[tuple[str, Path | None]] = []
+    if book.original_path:
+        actions.append(("Open original", book.original_path))
+    for translation in book.translations:
+        actions.append((f"Open {translation.label}", translation.path))
+    actions.append(("Show information", None))
+    return actions
+
+
+def _print_library_book_actions(book: LibraryBook, actions: list[tuple[str, Path | None]]) -> None:
+    table = Table(title=book.name)
+    table.add_column("Option")
+    table.add_column("Action")
+    for index, action in enumerate(actions, start=1):
+        table.add_row(str(index), action[0])
+    console.print(table)
+    console.print(f"{LIBRARY_BACK_OPTION}. Back")
+
+
+def _print_library_book_info(book: LibraryBook) -> None:
+    table = Table(title="Book information")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("Book", book.name)
+    table.add_row("Original EPUB", str(book.original_path) if book.original_path else "-")
+    table.add_row("Translations", _display_book_translations(book))
+    table.add_row("Translation files", _display_translation_paths(book))
+    console.print(table)
+
+
+def _open_library_book_path(path: Path, config: AyvuConfig, label: str) -> None:
+    try:
+        open_library_epub(path, reader_app=config.reader_app)
+    except LibraryOpenError as exc:
+        console.print(f"[red]Could not open EPUB:[/red] {exc}")
+        console.print("Configure Reader app in Settings or install a default EPUB reader.")
+        return
+
+    console.print(f"[green]{label}:[/green] {path}")
+
+
+def _display_book_translations(book: LibraryBook) -> str:
+    if not book.translations:
+        return "-"
+    return ", ".join(translation.label for translation in book.translations)
+
+
+def _display_translation_paths(book: LibraryBook) -> str:
+    if not book.translations:
+        return "-"
+    return "\n".join(str(translation.path) for translation in book.translations)
 
 
 def _run_guided_settings(config: AyvuConfig) -> None:
@@ -810,11 +930,6 @@ def _prompt_folder_name(prompt: str, current: str) -> str:
 def _prompt_optional_text(prompt: str, current: str | None) -> str | None:
     value = typer.prompt(prompt, default=current or "").strip()
     return value or None
-
-
-def _print_guided_placeholder(name: str) -> None:
-    console.print(f"[yellow]{name} is not available yet.[/yellow]")
-    console.print("Use the command help for the current technical commands.")
 
 
 def _choose_guided_target_language(default_target: str) -> str:

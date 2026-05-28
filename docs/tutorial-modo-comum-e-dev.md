@@ -43,7 +43,7 @@ Abra o menu inicial:
 uv run ayvu
 ```
 
-O menu permite iniciar uma tradução, gerar preview, ver ajuda, abrir biblioteca e acessar configurações. Biblioteca ainda aparece como opção indisponível na versão atual; as configurações já permitem alterar idioma padrão, pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB.
+O menu permite iniciar uma tradução, gerar preview, ver ajuda, abrir biblioteca e acessar configurações. A biblioteca lista EPUBs das pastas configuradas para originais e traduções, mostra as versões disponíveis e permite abrir o arquivo escolhido no leitor configurado ou no leitor padrão detectado no sistema. As configurações permitem alterar idioma padrão, pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB.
 
 ### Gerar um preview
 
@@ -153,11 +153,11 @@ No menu inicial, escolha `Settings` para ver os valores atuais e alterar prefer�
 ~/Documentos/Livros
 ```
 
-Dentro dela, o Ayvu usa os nomes configurados para previews, traduções finais, relatórios e estados de processamento. Você também pode alterar o nome da pasta `Original`, que segue como convenção para a biblioteca futura, e configurar o app leitor de EPUB para os próximos fluxos de biblioteca.
+Dentro dela, o Ayvu usa os nomes configurados para previews, traduções finais, relatórios, estados de processamento e biblioteca. Você também pode alterar o nome da pasta `Original` e configurar o app leitor de EPUB usado pela biblioteca.
 
-### Organizar biblioteca manualmente
+### Usar biblioteca
 
-A biblioteca guiada ainda não está completa. Enquanto isso, use a estrutura padrão como convenção local:
+A biblioteca inicial usa a estrutura configurada no modo comum. Com os nomes padrão:
 
 ```text
 ~/Documentos/Livros/
@@ -168,7 +168,9 @@ A biblioteca guiada ainda não está completa. Enquanto isso, use a estrutura pa
 └── Processando/
 ```
 
-Mantenha EPUBs originais em `Original`, previews em `Preview`, traduções finais em `Traduzidos` e relatórios em `Relatorios`. `Original` é apenas uma convenção manual do usuário por enquanto; o Ayvu ainda não cria nem gerencia essa pasta.
+Mantenha EPUBs originais em `Original`, previews em `Preview`, traduções finais em `Traduzidos` e relatórios em `Relatorios`. Ao escolher `Open library`, o Ayvu lista os livros em ordem alfabética, mostra quais têm original e quais traduções foram encontradas, permite ver informações do livro e abre a versão selecionada no leitor de EPUB.
+
+Se o Ayvu não detectar um leitor padrão do sistema, abra `Settings` e preencha `Reader app` com o comando do seu leitor, por exemplo `foliate`.
 
 ## Tutorial dev: comandos diretos
 
@@ -273,7 +275,8 @@ Depois da tradução:
 
 ## Limites atuais
 
-- Biblioteca e configurações ainda não estão completas.
+- A biblioteca inicial lista e abre EPUBs, mas ainda não gerencia importação automática, fila ou histórico completo.
+- Configurações ainda cobrem apenas as preferências locais iniciais.
 - A tradução ainda acontece por nós de texto, então frases quebradas por tags podem perder contexto.
 - A qualidade depende do servidor de tradução local.
 - Livros técnicos costumam exigir glossário.
