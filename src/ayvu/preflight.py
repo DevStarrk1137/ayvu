@@ -8,7 +8,16 @@ from .cache import TranslationCache
 from .domain import LanguagePair, LanguagePairError
 from .epub_io import inspect_epub
 from .glossary import Glossary, GlossaryError, load_glossary
-from .translator import Translator, TranslatorError, create_translator
+from .translator import (
+    RouteResolutionError,
+    RoutedTranslator,
+    TranslationRoute,
+    Translator,
+    TranslatorError,
+    TranslatorLanguage,
+    create_translator,
+    resolve_translation_route,
+)
 
 
 class PreflightError(RuntimeError):
@@ -23,6 +32,7 @@ class PreflightError(RuntimeError):
 class TranslationPreflightResult:
     translator: Translator
     glossary: Glossary
+    route: TranslationRoute | None = None
 
 
 def run_translation_preflight(
@@ -41,9 +51,12 @@ def run_translation_preflight(
     translator = _create_checked_translator(translator_name, url, timeout, retries)
     _check_cache(cache_path)
     _check_epub(epub_path)
+    route: TranslationRoute | None = None
     if not dry_run:
-        _check_translator(translator, language_pair, url)
-    return TranslationPreflightResult(translator=translator, glossary=glossary)
+        route = _resolve_route_or_fallback(translator, language_pair, url)
+        if route is not None and not route.is_direct:
+            translator = RoutedTranslator(translator, route)
+    return TranslationPreflightResult(translator=translator, glossary=glossary, route=route)
 
 
 def _check_language_pair(language_pair: LanguagePair) -> None:
@@ -102,7 +115,50 @@ def _check_epub(epub_path: Path) -> None:
         ) from exc
 
 
-def _check_translator(translator: Translator, language_pair: LanguagePair, url: str) -> None:
+def _resolve_route_or_fallback(
+    translator: Translator,
+    language_pair: LanguagePair,
+    url: str,
+) -> TranslationRoute | None:
+    languages = _list_translator_languages(translator, url)
+    if languages is None:
+        return _probe_translator_pair(translator, language_pair, url)
+
+    try:
+        return resolve_translation_route(languages, language_pair.source, language_pair.target)
+    except RouteResolutionError as exc:
+        raise PreflightError(
+            "O par de idiomas não está disponível no tradutor.",
+            (
+                "Confirme em 'ayvu languages' os idiomas instalados, escolha outro --target, "
+                "ou instale o idioma necessário no LibreTranslate."
+            ),
+            detail=str(exc),
+        ) from exc
+
+
+def _list_translator_languages(
+    translator: Translator,
+    url: str,
+) -> tuple[TranslatorLanguage, ...] | None:
+    lister = getattr(translator, "list_languages", None)
+    if lister is None:
+        return None
+    try:
+        return lister()
+    except TranslatorError as exc:
+        raise PreflightError(
+            "O tradutor não respondeu.",
+            f"Inicie o LibreTranslate em {url}, verifique --url e confirme que o servidor está acessível.",
+            detail=str(exc),
+        ) from exc
+
+
+def _probe_translator_pair(
+    translator: Translator,
+    language_pair: LanguagePair,
+    url: str,
+) -> TranslationRoute:
     try:
         translator.translate("Hello world", language_pair.source, language_pair.target)
     except Exception as exc:
@@ -111,3 +167,4 @@ def _check_translator(translator: Translator, language_pair: LanguagePair, url: 
             f"Inicie o LibreTranslate em {url}, verifique --url e confirme que o par de idiomas está disponível.",
             detail=str(exc),
         ) from exc
+    return TranslationRoute(source=language_pair.source, target=language_pair.target)

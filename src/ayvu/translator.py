@@ -19,6 +19,10 @@ class UnsupportedTranslatorError(TranslatorError):
     pass
 
 
+class RouteResolutionError(TranslatorError):
+    pass
+
+
 @dataclass(frozen=True)
 class TranslatorLanguage:
     code: str
@@ -27,10 +31,78 @@ class TranslatorLanguage:
     state: str = "installed"
 
 
+@dataclass(frozen=True)
+class TranslationRoute:
+    source: str
+    target: str
+    intermediate: str | None = None
+
+    @property
+    def is_direct(self) -> bool:
+        return self.intermediate is None
+
+    def describe(self) -> str:
+        if self.intermediate is None:
+            return f"{self.source} -> {self.target}"
+        return f"{self.source} -> {self.intermediate} -> {self.target}"
+
+
 class Translator(ABC):
     @abstractmethod
     def translate(self, text: str, source: str, target: str) -> str:
         raise NotImplementedError
+
+
+def resolve_translation_route(
+    languages: tuple[TranslatorLanguage, ...],
+    source: str,
+    target: str,
+    intermediate_candidates: tuple[str, ...] = ("en",),
+) -> TranslationRoute:
+    if source == target:
+        return TranslationRoute(source=source, target=target)
+
+    by_code = {language.code: language for language in languages}
+
+    source_lang = by_code.get(source)
+    if source_lang is not None and target in source_lang.targets:
+        return TranslationRoute(source=source, target=target)
+
+    for bridge in intermediate_candidates:
+        if bridge in (source, target):
+            continue
+        bridge_lang = by_code.get(bridge)
+        if bridge_lang is None or target not in bridge_lang.targets:
+            continue
+        if source_lang is None or bridge not in source_lang.targets:
+            continue
+        return TranslationRoute(source=source, target=target, intermediate=bridge)
+
+    raise RouteResolutionError(
+        f"No translation route available from '{source}' to '{target}'."
+    )
+
+
+class RoutedTranslator(Translator):
+    def __init__(self, base: Translator, route: TranslationRoute) -> None:
+        self._base = base
+        self._route = route
+
+    @property
+    def route(self) -> TranslationRoute:
+        return self._route
+
+    def translate(self, text: str, source: str, target: str) -> str:
+        if (
+            self._route.is_direct
+            or source != self._route.source
+            or target != self._route.target
+        ):
+            return self._base.translate(text, source, target)
+        intermediate = self._route.intermediate
+        assert intermediate is not None
+        first = self._base.translate(text, source, intermediate)
+        return self._base.translate(first, intermediate, target)
 
 
 class HttpSession(Protocol):

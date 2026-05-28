@@ -31,7 +31,7 @@ from .resume import (
     TranslationResumeState,
     default_processing_dir,
 )
-from .translator import LibreTranslateTranslator, TranslatorError, TranslatorLanguage
+from .translator import LibreTranslateTranslator, TranslationRoute, TranslatorError, TranslatorLanguage
 from .validation import validate_output_epub
 
 
@@ -284,6 +284,20 @@ def _print_translation_plan(
         console.print(f"[dim]Idioma de origem detectado do EPUB: {language_pair.source}[/dim]")
 
 
+def _print_translation_route(route: TranslationRoute | None, mode: UserMode) -> None:
+    if route is None:
+        return
+    if mode == UserMode.DEVELOPER:
+        console.print(f"[cyan]Route:[/cyan] {route.describe()}")
+    if route.is_direct:
+        return
+    if mode == UserMode.COMMON:
+        console.print(f"[yellow]A tradução passará por 2 etapas ({route.describe()}).[/yellow]")
+        console.print("[yellow]A qualidade pode ficar comprometida por causa do idioma intermediário.[/yellow]")
+    else:
+        console.print("[yellow]Rota intermediária em uso. A qualidade pode ficar comprometida.[/yellow]")
+
+
 def _run_translation(
     epub_path: Path,
     output: Path | None,
@@ -338,6 +352,8 @@ def _run_translation(
     except PreflightError as exc:
         _print_expected_error(exc.summary, exc.next_step, mode, detail=exc.detail)
         raise typer.Exit(code=1) from exc
+
+    _print_translation_route(preflight.route, mode=mode)
 
     resume_store: ResumeStateStore | None = None
     resume_state: TranslationResumeState | None = None
@@ -458,6 +474,8 @@ def _run_preview(
     except PreflightError as exc:
         _print_expected_error(exc.summary, exc.next_step, mode, detail=exc.detail)
         raise typer.Exit(code=1) from exc
+
+    _print_translation_route(preflight.route, mode=mode)
 
     with Progress(
         SpinnerColumn(),
