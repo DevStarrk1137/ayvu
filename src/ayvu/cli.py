@@ -20,7 +20,7 @@ from .domain import (
     default_preview_books_dir,
     default_translated_books_dir,
 )
-from .epub_io import TranslationReport, extract_markdown, inspect_epub, translate_epub
+from .epub_io import TranslationReport, detect_epub_language, extract_markdown, inspect_epub, translate_epub
 from .library import LibraryBook, LibraryOpenError, open_library_epub, scan_library
 from .preflight import PreflightError, run_translation_preflight
 from .resume import (
@@ -186,7 +186,11 @@ def translate(
         "-o",
         help="Output EPUB path. Defaults to <input-stem>-<target>.epub.",
     ),
-    source: str = typer.Option(DEFAULT_SOURCE_LANGUAGE, "--source", help="Source language."),
+    source: Optional[str] = typer.Option(
+        None,
+        "--source",
+        help="Source language. If omitted, Ayvu reads the language metadata from the EPUB.",
+    ),
     target: str = typer.Option(DEFAULT_TARGET_LANGUAGE, "--target", help="Target language."),
     translator_name: str = typer.Option("libretranslate", "--translator", help="Translator backend."),
     url: str = typer.Option(DEFAULT_TRANSLATOR_URL, "--url", help="Translator base URL."),
@@ -238,10 +242,52 @@ def _print_epub_read_error(detail: str, mode: UserMode) -> None:
     )
 
 
+def _resolve_source_language(
+    explicit_source: str | None,
+    epub_path: Path,
+    mode: UserMode,
+) -> tuple[str, bool]:
+    if explicit_source is not None and explicit_source.strip():
+        return explicit_source.strip(), False
+
+    try:
+        detected = detect_epub_language(epub_path)
+    except Exception:
+        return DEFAULT_SOURCE_LANGUAGE, True
+
+    if detected is None:
+        console.print(
+            "[yellow]Idioma do EPUB ausente ou inválido nos metadados.[/yellow] "
+            f"Usando '{DEFAULT_SOURCE_LANGUAGE}' como padrão. "
+            "Use --source para escolher outro idioma de origem."
+        )
+        return DEFAULT_SOURCE_LANGUAGE, True
+
+    return detected, True
+
+
+def _print_translation_plan(
+    language_pair: LanguagePair,
+    source_inferred: bool,
+    mode: UserMode,
+) -> None:
+    table = Table(title="Translation plan")
+    table.add_column("Field")
+    table.add_column("Value")
+    source_value = language_pair.source
+    if source_inferred and mode == UserMode.DEVELOPER:
+        source_value = f"{language_pair.source} (inferido do EPUB)"
+    table.add_row("From", source_value)
+    table.add_row("To", language_pair.target)
+    console.print(table)
+    if source_inferred and mode == UserMode.COMMON:
+        console.print(f"[dim]Idioma de origem detectado do EPUB: {language_pair.source}[/dim]")
+
+
 def _run_translation(
     epub_path: Path,
     output: Path | None,
-    source: str,
+    source: str | None,
     target: str,
     translator_name: str,
     url: str,
@@ -257,7 +303,9 @@ def _run_translation(
     config: AyvuConfig | None = None,
 ) -> None:
     config = config or _load_existing_config_or_default()
-    language_pair = LanguagePair(source=source, target=target)
+    resolved_source, source_inferred = _resolve_source_language(source, epub_path, mode=mode)
+    language_pair = LanguagePair(source=resolved_source, target=target)
+    _print_translation_plan(language_pair, source_inferred=source_inferred, mode=mode)
     translation_options = TranslationOptions(
         language_pair=language_pair,
         dry_run=dry_run,
@@ -711,7 +759,7 @@ def _run_guided_translation(config: AyvuConfig) -> None:
     _run_translation(
         epub_path=epub_path,
         output=None,
-        source=DEFAULT_SOURCE_LANGUAGE,
+        source=None,
         target=target,
         translator_name="libretranslate",
         url=DEFAULT_TRANSLATOR_URL,

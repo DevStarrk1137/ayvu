@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from ebooklib import epub
 from typer.testing import CliRunner
 
 from ayvu.cli import (
@@ -1497,3 +1498,96 @@ def test_extract_command_reports_invalid_epub_without_traceback(tmp_path):
     assert "Não foi possível ler o EPUB informado." in result.output
     assert "Confirme que o arquivo é um EPUB válido e legível" in result.output
     assert "Traceback" not in result.output
+
+
+def _mock_translation_pipeline(monkeypatch, calls: dict[str, object]) -> None:
+    def fake_preflight(**kwargs: object) -> object:
+        calls["preflight"] = kwargs
+        return SimpleNamespace(translator=object(), glossary=None)
+
+    def fake_translate(input_path: Path, output_path: Path, **kwargs: object) -> TranslationReport:
+        calls["options"] = kwargs["options"]
+        return TranslationReport(
+            output_path=output_path,
+            input_path=input_path,
+            detected_language=kwargs["options"].source,
+            target_language=kwargs["options"].target,
+        )
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fake_preflight)
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr(
+        "ayvu.cli.validate_output_epub",
+        lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1),
+    )
+    monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
+
+
+def test_translate_auto_detects_source_language_from_epub(minimal_epub_path, tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(app, ["--mode", "developer", "translate", str(minimal_epub_path)])
+
+    assert result.exit_code == 0
+    assert calls["options"].source == "en"
+    assert "Translation plan" in result.output
+    assert "inferido do EPUB" in result.output
+
+
+def test_translate_explicit_source_overrides_epub_metadata(minimal_epub_path, tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(
+        app,
+        ["--mode", "developer", "translate", str(minimal_epub_path), "--source", "fr"],
+    )
+
+    assert result.exit_code == 0
+    assert calls["options"].source == "fr"
+    assert "inferido do EPUB" not in result.output
+
+
+def test_translate_warns_when_epub_language_metadata_is_missing(tmp_path, monkeypatch):
+    epub_path = tmp_path / "no-lang.epub"
+    book = epub.EpubBook()
+    book.set_identifier("ayvu-no-lang")
+    book.set_title("No Language")
+    book.add_author("Ayvu Tests")
+    chapter = epub.EpubHtml(title="Ch", file_name="text/ch.xhtml")
+    chapter.content = "<h1>Title</h1><p>Body.</p>"
+    book.add_item(chapter)
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = ["nav", chapter]
+    epub.write_epub(str(epub_path), book)
+
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(app, ["--mode", "developer", "translate", str(epub_path)])
+
+    assert result.exit_code == 0
+    assert "Idioma do EPUB ausente ou inválido" in result.output
+    assert calls["options"].source == "en"
+
+
+def test_translate_common_mode_shows_detected_source_hint(minimal_epub_path, tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(
+        app,
+        ["--mode", "common", "translate", str(minimal_epub_path)],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+    assert "Translation plan" in result.output
+    assert "Idioma de origem detectado do EPUB: en" in result.output
