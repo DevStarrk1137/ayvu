@@ -616,11 +616,40 @@ def _init_default_language_config(store: ConfigStore) -> AyvuConfig:
         "O Ayvu usará essa pasta para biblioteca, previews, relatórios e traduções."
     )
     books_dir = _prompt_path("Books folder", Path(DEFAULT_BOOKS_DIR))
-    config = AyvuConfig(default_target_language=language, books_dir=books_dir)
+    folders = _choose_initial_folder_names(books_dir)
+    config = AyvuConfig(
+        default_target_language=language,
+        books_dir=books_dir,
+        folders=folders,
+    )
     if _save_config(store, config):
         console.print(f"[green]Idioma padrão salvo:[/green] {language}")
         console.print(f"[green]Pasta base salva:[/green] {books_dir}")
     return config
+
+
+def _choose_initial_folder_names(books_dir: Path) -> FolderNames:
+    config = AyvuConfig(books_dir=books_dir)
+    console.print("O Ayvu usará estes nomes de pastas por padrão:")
+    _print_feature_folder_paths(config)
+    if typer.confirm("Manter estes nomes de pastas?", default=True):
+        return config.folders
+
+    updated = _settings_with_folder_names(config)
+    _print_feature_folder_paths(updated)
+    return updated.folders
+
+
+def _print_feature_folder_paths(config: AyvuConfig) -> None:
+    table = Table(title="Feature folders")
+    table.add_column("Feature")
+    table.add_column("Folder")
+    table.add_row("Original books", str(config.original_dir))
+    table.add_row("Translated books", str(config.translated_dir))
+    table.add_row("Previews", str(config.preview_dir))
+    table.add_row("Reports", str(config.reports_dir))
+    table.add_row("Processing states", str(config.processing_dir))
+    console.print(table)
 
 
 def _save_config(store: ConfigStore, config: AyvuConfig) -> bool:
