@@ -112,6 +112,23 @@ def inspect_epub(path: str | Path) -> EpubInfo:
     )
 
 
+def normalize_language_code(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    cleaned = raw.strip()
+    if not cleaned:
+        return None
+    primary = cleaned.split("-", 1)[0].split("_", 1)[0].lower()
+    if not primary.isalpha() or not 2 <= len(primary) <= 3:
+        return None
+    return primary
+
+
+def detect_epub_language(path: str | Path) -> str | None:
+    info = inspect_epub(path)
+    return normalize_language_code(info.language)
+
+
 def translate_epub(
     input_path: str | Path,
     output_path: str | Path,

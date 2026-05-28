@@ -12,8 +12,10 @@ from ayvu.epub_io import (
     TranslationReport,
     _document_entries,
     _document_zip_path,
+    detect_epub_language,
     extract_markdown,
     inspect_epub,
+    normalize_language_code,
     translate_epub,
 )
 
@@ -171,6 +173,26 @@ def test_translate_epub_translates_minimal_generated_epub_without_mutating_input
     assert "PT:chapter two" in chapter
     assert "chapter2.xhtml#answer" in chapter
     assert "../images/pixel.png" in chapter
+
+
+def test_normalize_language_code_extracts_primary_subtag_from_bcp47():
+    assert normalize_language_code("pt-BR") == "pt"
+    assert normalize_language_code("en_US") == "en"
+    assert normalize_language_code("EN") == "en"
+    assert normalize_language_code("  fr ") == "fr"
+
+
+def test_normalize_language_code_rejects_empty_or_invalid_values():
+    assert normalize_language_code(None) is None
+    assert normalize_language_code("") is None
+    assert normalize_language_code("   ") is None
+    assert normalize_language_code("english") is None
+    assert normalize_language_code("12") is None
+    assert normalize_language_code("e n") is None
+
+
+def test_detect_epub_language_returns_normalized_metadata(minimal_epub_path: Path):
+    assert detect_epub_language(minimal_epub_path) == "en"
 
 
 def test_translate_epub_limits_documents_for_preview(minimal_epub_path: Path, tmp_path: Path):

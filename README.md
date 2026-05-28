@@ -116,12 +116,16 @@ Traduzir um EPUB:
 
 ```bash
 uv run ayvu translate livro.epub \
-  --source en \
   --target pt \
   --translator libretranslate \
   --url http://localhost:5000 \
   --cache .cache/traducoes.sqlite
 ```
+
+Se `--source` não for informado, o Ayvu lê o idioma do EPUB nos metadados, exibe o
+plano da tradução (`From`/`To`) antes de começar e usa o idioma detectado como
+origem. Quando o metadado estiver ausente ou inválido, o Ayvu avisa e usa `en`
+como padrão; informe `--source` para escolher outro idioma de origem.
 
 Gerar um preview traduzido:
 
