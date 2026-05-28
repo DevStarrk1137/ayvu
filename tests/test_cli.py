@@ -735,16 +735,19 @@ def test_root_command_settings_changes_reader_app(isolated_config, tmp_path, mon
 
 def test_root_command_first_use_asks_and_saves_default_language(isolated_config, tmp_path, monkeypatch):
     isolated_config.unlink()
+    books_dir = tmp_path / "Minha Biblioteca"
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
     monkeypatch.setattr("ayvu.cli.LibreTranslateTranslator", FakeNoLanguagesTranslator)
 
-    result = runner.invoke(app, [], input="es\n0\n")
+    result = runner.invoke(app, [], input=f"es\n{books_dir}\n0\n")
 
     assert result.exit_code == 0
     assert "Primeiro uso do modo comum." in result.output
     assert "Idioma padrão salvo:" in result.output
+    assert "Pasta base salva:" in result.output
     saved = json.loads(isolated_config.read_text(encoding="utf-8"))
     assert saved["default_target_language"] == "es"
+    assert saved["books_dir"] == str(books_dir)
 
 
 def test_root_command_does_not_reask_when_config_exists(tmp_path, monkeypatch):

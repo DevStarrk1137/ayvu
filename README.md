@@ -136,9 +136,10 @@ salva por padrão em:
 ~/Documentos/Livros/Preview/livro-preview.epub
 ```
 
-No primeiro uso do modo comum, o Ayvu pergunta o idioma padrão de leitura/tradução e o
-salva na configuração. Nas próximas execuções esse idioma é usado como destino padrão
-em traduções e previews, sem perguntar de novo.
+No primeiro uso do modo comum, o Ayvu pergunta o idioma padrão de leitura/tradução e
+a pasta base dos livros, depois salva essas escolhas na configuração. Nas próximas
+execuções esse idioma é usado como destino padrão em traduções e previews, e a pasta
+base organiza biblioteca, previews, relatórios e traduções, sem perguntar de novo.
 
 Ao executar apenas `uv run ayvu`, o Ayvu abre um primeiro menu guiado com opções para traduzir
 livro, gerar preview, abrir biblioteca, acessar configurações, mostrar ajuda ou sair. A biblioteca
