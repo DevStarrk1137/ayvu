@@ -1,9 +1,29 @@
 {
-  "Game Loop": "loop de jogo",
-  "Design Pattern": "padrão de projeto",
-  "Observer": "Observer",
-  "Command": "Command",
-  "State": "State",
-  "Singleton": "Singleton",
-  "Object Pool": "pool de objetos"
+  "Game Loop": {
+    "rule": "translate",
+    "translation": "loop de jogo"
+  },
+  "Design Pattern": {
+    "rule": "translate",
+    "translation": "padrão de projeto"
+  },
+  "Observer": {
+    "rule": "preserve"
+  },
+  "Command": {
+    "rule": "preserve"
+  },
+  "State": {
+    "rule": "preserve"
+  },
+  "Singleton": {
+    "rule": "preserve"
+  },
+  "Object Pool": {
+    "rule": "translate",
+    "translation": "pool de objetos"
+  },
+  "AntiPattern": {
+    "rule": "forbidden"
+  }
 }

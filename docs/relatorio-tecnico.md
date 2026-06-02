@@ -233,7 +233,8 @@ uv run ayvu --mode common translate livro.epub
 
 `src/ayvu/cache.py` persiste traduções em SQLite usando idioma de origem, idioma de destino e hash do texto original.
 
-`src/ayvu/glossary.py` lê e aplica glossário JSON simples.
+`src/ayvu/glossary.py` lê glossários JSON no formato simples e no formato com
+regras explícitas `translate`, `preserve` e `forbidden`.
 
 `src/ayvu/chunking.py` divide textos longos preservando ordem e evitando cortar palavras quando possível.
 
@@ -357,6 +358,13 @@ source_lang + target_lang + SHA-256(texto original)
 
 O glossário é aplicado depois da tradução e também sobre textos recuperados do cache. Isso mantém o comportamento consistente entre texto novo e texto reaproveitado.
 
+O formato simples de glossário (`"Termo": "tradução"`) continua sendo aceito e
+equivale à regra `translate`. O formato avançado aceita objetos por termo com
+`rule: "translate"` e `translation`, `rule: "preserve"` ou
+`rule: "forbidden"`. As regras `translate` e `preserve` alteram o texto final; a
+regra `forbidden` fica disponível para detecção de termos proibidos e para
+relatórios futuros.
+
 Antes de enviar texto ao tradutor, `src/ayvu/html_translate.py` protege termos especiais com placeholders internos e os restaura depois da chamada HTTP. O escopo protegido inclui URLs, caminhos de arquivo, comandos de terminal, versões como `v1.2.0`, placeholders, código inline e identificadores técnicos simples. A tradução restaurada é gravada no cache antes da aplicação do glossário.
 
 Textos longos são divididos antes de serem enviados ao tradutor. A regra atual tenta dividir por:
@@ -462,7 +470,7 @@ Se o servidor estiver indisponível, o Ayvu deve falhar com uma mensagem orienta
 
 ## 18. Testes e CI
 
-A suíte atual tem 159 testes definidos em `tests/`, cobrindo:
+A suíte atual tem 167 testes definidos em `tests/`, cobrindo:
 
 - cache SQLite;
 - chunking;

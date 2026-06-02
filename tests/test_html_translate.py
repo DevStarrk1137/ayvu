@@ -1,5 +1,6 @@
 from ayvu.cache import CacheKey, TranslationCache
 from ayvu.domain import LanguagePair
+from ayvu.glossary import GLOSSARY_RULE_PRESERVE, GLOSSARY_RULE_TRANSLATE, Glossary, GlossaryEntry
 from ayvu.html_translate import extract_visible_text, translate_html, translate_text
 from ayvu.translator import Translator
 
@@ -76,6 +77,26 @@ def test_translate_text_result_reports_cache_hit(tmp_path):
         result = translate_text(" Keep me ", translator, cache, "en", "pt")
 
     assert result.text == " Mantenha-me "
+    assert result.from_cache
+    assert translator.calls == []
+
+
+def test_translate_text_applies_advanced_glossary_rules_to_cache_hits(tmp_path):
+    translator = FakeTranslator()
+    glossary = Glossary(
+        [
+            GlossaryEntry("Observer", GLOSSARY_RULE_PRESERVE),
+            GlossaryEntry("Game Loop", GLOSSARY_RULE_TRANSLATE, "loop de jogo"),
+        ]
+    )
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        cache_key = CacheKey(text="Keep me", language_pair=LanguagePair(source="en", target="pt"))
+        cache.set(cache_key, "observer uses the Game Loop")
+
+        result = translate_text("Keep me", translator, cache, "en", "pt", glossary=glossary)
+
+    assert result.text == "Observer uses the loop de jogo"
     assert result.from_cache
     assert translator.calls == []
 
