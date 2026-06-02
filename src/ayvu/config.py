@@ -12,6 +12,7 @@ DEFAULT_TARGET_LANGUAGE = "pt"
 DEFAULT_BOOKS_DIR = "~/Documentos/Livros"
 DEFAULT_CONFIG_DIR = "ayvu"
 DEFAULT_CONFIG_FILE = "config.json"
+DEFAULT_GLOSSARIES_DIR = "glossaries"
 
 
 class ConfigError(ValueError):
@@ -156,6 +157,10 @@ def default_config_path(env: Mapping[str, str] | None = None, home: Path | None 
     else:
         base_dir = (home or Path.home()) / ".config"
     return base_dir / DEFAULT_CONFIG_DIR / DEFAULT_CONFIG_FILE
+
+
+def default_glossaries_dir(env: Mapping[str, str] | None = None, home: Path | None = None) -> Path:
+    return default_config_path(env=env, home=home).parent / DEFAULT_GLOSSARIES_DIR
 
 
 def _optional_text(data: dict[str, object], key: str, default: str) -> str:

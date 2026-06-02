@@ -544,6 +544,87 @@ def test_root_command_starts_guided_translation(tmp_path, monkeypatch):
     assert options.target == "pt"
 
 
+def test_root_command_creates_guided_glossary(isolated_config, tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(
+        app,
+        [],
+        input="5\n1\nTechnical Terms\nGame Loop\n1\nloop de jogo\ny\nObserver\n2\nn\ny\n",
+    )
+
+    glossary_path = isolated_config.parent / "glossaries" / "technical-terms.json"
+    assert result.exit_code == 0
+    assert "Glossaries" in result.output
+    assert "Glossary preview" in result.output
+    assert "Glossary saved:" in result.output
+    assert json.loads(glossary_path.read_text(encoding="utf-8")) == {
+        "Game Loop": {"rule": "translate", "translation": "loop de jogo"},
+        "Observer": {"rule": "preserve"},
+    }
+
+
+def test_root_command_edits_guided_glossary(isolated_config, tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+    glossary_dir = isolated_config.parent / "glossaries"
+    glossary_dir.mkdir()
+    glossary_path = glossary_dir / "technical.json"
+    glossary_path.write_text('{"Observer": {"rule": "preserve"}}\n', encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [],
+        input="5\n2\n1\nObject Pool\n1\npool de objetos\nn\ny\n",
+    )
+
+    assert result.exit_code == 0
+    assert "Edit saved glossary" in result.output
+    assert "Saved glossaries" in result.output
+    assert "Term added:" in result.output
+    assert json.loads(glossary_path.read_text(encoding="utf-8")) == {
+        "Observer": {"rule": "preserve"},
+        "Object Pool": {"rule": "translate", "translation": "pool de objetos"},
+    }
+
+
+def test_root_command_selects_saved_glossary_for_guided_translation(isolated_config, tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    output_dir = tmp_path / "Traduzidos"
+    processing_dir = tmp_path / "Processando"
+    epub_path.write_bytes(b"fake epub")
+    glossary_dir = isolated_config.parent / "glossaries"
+    glossary_dir.mkdir()
+    glossary_path = glossary_dir / "technical.json"
+    glossary_path.write_text('{"Observer": {"rule": "preserve"}}\n', encoding="utf-8")
+    calls: dict[str, object] = {}
+
+    def fake_preflight(**kwargs: object) -> object:
+        calls["preflight"] = kwargs
+        return SimpleNamespace(translator=object(), glossary=object(), route=None)
+
+    def fake_translate(input_path: Path, output_path: Path, **kwargs: object) -> TranslationReport:
+        calls["input_path"] = input_path
+        calls["output_path"] = output_path
+        calls["glossary"] = kwargs["glossary"]
+        return TranslationReport(output_path=output_path, input_path=input_path, target_language="pt")
+
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: output_dir)
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fake_preflight)
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1))
+    monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
+
+    result = runner.invoke(app, [], input=f"1\n{epub_path}\n1\n1\ny\n")
+
+    assert result.exit_code == 0
+    assert "Saved glossaries are available." in result.output
+    assert "Glossary selected:" in result.output
+    assert calls["preflight"]["glossary_path"] == glossary_path
+    assert calls["glossary"] is not None
+
+
 def test_root_command_shows_empty_guided_library(isolated_config, tmp_path):
     books_dir = tmp_path / "Biblioteca"
     isolated_config.write_text(
@@ -842,7 +923,7 @@ def test_root_command_ignores_invalid_config(isolated_config, tmp_path, monkeypa
 def test_root_command_can_show_help_from_guided_menu(tmp_path, monkeypatch):
     monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
 
-    result = runner.invoke(app, [], input="5\n")
+    result = runner.invoke(app, [], input="6\n")
 
     assert result.exit_code == 0
     assert "Show command help" in result.output

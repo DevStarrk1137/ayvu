@@ -193,6 +193,28 @@ def load_glossary(path: str | Path | None) -> Glossary:
     return Glossary(_parse_glossary_entries(data))
 
 
+def save_glossary(path: str | Path, glossary: Glossary) -> Path:
+    glossary_path = Path(path)
+    data = glossary_to_dict(glossary)
+    try:
+        glossary_path.parent.mkdir(parents=True, exist_ok=True)
+        glossary_path.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise GlossaryError(f"Could not write glossary file: {glossary_path}") from exc
+    return glossary_path
+
+
+def glossary_to_dict(glossary: Glossary) -> dict[str, object]:
+    data: dict[str, object] = {}
+    for entry in glossary.entries:
+        data[entry.term] = _glossary_entry_to_value(entry)
+    _parse_glossary_entries(data)
+    return data
+
+
 def apply_glossary(text: str, glossary: Glossary | Mapping[object, object] | None) -> str:
     return apply_glossary_with_usage(text, glossary).text
 
@@ -210,6 +232,30 @@ def apply_glossary_with_usage(
 
 def _parse_glossary_entries(data: Mapping[object, object]) -> tuple[GlossaryEntry, ...]:
     return tuple(_parse_glossary_entry(str(term), value) for term, value in data.items())
+
+
+def _glossary_entry_to_value(entry: GlossaryEntry) -> object:
+    if entry.rule == GLOSSARY_RULE_TRANSLATE:
+        if entry.translation is None:
+            raise GlossaryError(
+                f"Glossary entry for '{entry.term}' with rule 'translate' must include a string translation"
+            )
+        value: dict[str, object] = {
+            "rule": GLOSSARY_RULE_TRANSLATE,
+            "translation": entry.translation,
+        }
+        if entry.required:
+            value["required"] = True
+        return value
+    if entry.rule == GLOSSARY_RULE_PRESERVE:
+        value = {"rule": GLOSSARY_RULE_PRESERVE}
+        if entry.required:
+            value["required"] = True
+        return value
+    if entry.rule == GLOSSARY_RULE_FORBIDDEN:
+        return {"rule": GLOSSARY_RULE_FORBIDDEN}
+    allowed_rules = ", ".join(sorted(GLOSSARY_RULES))
+    raise GlossaryError(f"Glossary entry for '{entry.term}' uses unsupported rule '{entry.rule}': {allowed_rules}")
 
 
 def _parse_glossary_entry(term: str, value: object) -> GlossaryEntry:

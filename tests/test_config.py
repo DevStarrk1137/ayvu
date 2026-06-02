@@ -9,6 +9,7 @@ from ayvu.config import (
     ConfigStore,
     FolderNames,
     default_config_path,
+    default_glossaries_dir,
 )
 
 
@@ -22,6 +23,12 @@ def test_default_config_path_falls_back_to_home_config(tmp_path):
     path = default_config_path({}, home=tmp_path)
 
     assert path == tmp_path / ".config" / "ayvu" / "config.json"
+
+
+def test_default_glossaries_dir_uses_ayvu_config_folder():
+    path = default_glossaries_dir({"XDG_CONFIG_HOME": "/tmp/custom-config"})
+
+    assert path == Path("/tmp/custom-config/ayvu/glossaries")
 
 
 def test_default_config_defines_initial_preferences():
