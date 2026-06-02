@@ -43,7 +43,7 @@ Abra o menu inicial:
 uv run ayvu
 ```
 
-O menu permite iniciar uma tradução, gerar preview, ver ajuda, abrir biblioteca e acessar configurações. A biblioteca lista EPUBs das pastas configuradas para originais e traduções, mostra as versões disponíveis e permite abrir o arquivo escolhido no leitor configurado ou no leitor padrão detectado no sistema. As configurações permitem alterar idioma padrão, pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB.
+O menu permite iniciar uma tradução, gerar preview, abrir biblioteca, gerenciar glossários, ver ajuda e acessar configurações. A biblioteca lista EPUBs das pastas configuradas para originais e traduções, mostra as versões disponíveis e permite abrir o arquivo escolhido no leitor configurado ou no leitor padrão detectado no sistema. As configurações permitem alterar idioma padrão, pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB.
 
 No primeiro uso, o Ayvu pergunta o idioma padrão de leitura/tradução e a pasta base dos livros. Em seguida, mostra os nomes das pastas das funcionalidades e permite manter os padrões ou alterá-los uma única vez antes de salvar a configuração. Essa pasta é usada para organizar biblioteca, previews, relatórios, traduções e estados de processamento.
 
@@ -69,7 +69,7 @@ Abra o preview no seu leitor de EPUB e confira capa, sumário, primeiro capítul
 
 ### Traduzir o livro completo
 
-Pelo menu inicial, escolha traduzir livro e informe o caminho do EPUB. O Ayvu mostra o idioma de destino padrão como primeira opção e também oferece `Outro idioma`. Ao escolher outro idioma, ele lista os idiomas do LibreTranslate com nome, código e estado. Depois disso, confirma onde o arquivo traduzido será salvo.
+Pelo menu inicial, escolha traduzir livro e informe o caminho do EPUB. O Ayvu mostra o idioma de destino padrão como primeira opção e também oferece `Outro idioma`. Ao escolher outro idioma, ele lista os idiomas do LibreTranslate com nome, código e estado. Se houver glossários salvos, o Ayvu permite escolher um deles antes de confirmar onde o arquivo traduzido será salvo.
 
 Antes de iniciar uma tradução real, o Ayvu verifica EPUB, idioma, glossário, cache e tradutor. Se algo estiver errado, ele falha cedo com uma mensagem curta e um próximo passo.
 
@@ -104,7 +104,24 @@ Use este fluxo quando estiver traduzindo livros técnicos ou quiser controlar me
 
 ### Usar glossário
 
-Crie um glossário a partir do exemplo versionado:
+No modo comum, escolha `Glossaries` no menu inicial. O Ayvu salva glossários guiados em:
+
+```text
+$XDG_CONFIG_HOME/ayvu/glossaries
+```
+
+Se `XDG_CONFIG_HOME` não estiver definido, o fallback é:
+
+```text
+~/.config/ayvu/glossaries
+```
+
+Ao criar ou editar um glossário, informe o termo original e escolha entre uma tradução
+preferida ou preservar o termo sem tradução. O Ayvu mostra uma prévia dos termos, valida o
+JSON e salva o arquivo. Na próxima tradução guiada, se houver glossários salvos, escolha o
+glossário desejado antes de iniciar o processamento.
+
+No modo desenvolvedor, crie um glossário a partir do exemplo versionado:
 
 ```bash
 cp glossary.example.json glossary.json

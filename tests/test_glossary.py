@@ -10,7 +10,9 @@ from ayvu.glossary import (
     GlossaryUsage,
     apply_glossary,
     apply_glossary_with_usage,
+    glossary_to_dict,
     load_glossary,
+    save_glossary,
 )
 
 
@@ -89,6 +91,27 @@ def test_load_glossary_supports_required_terms(tmp_path):
         GlossaryEntry("Game Loop", GLOSSARY_RULE_TRANSLATE, "loop de jogo", required=True),
         GlossaryEntry("Observer", GLOSSARY_RULE_PRESERVE, required=True),
     )
+
+
+def test_save_glossary_writes_valid_advanced_json(tmp_path):
+    glossary_path = tmp_path / "glossaries" / "technical.json"
+    glossary = Glossary(
+        [
+            GlossaryEntry("Game Loop", GLOSSARY_RULE_TRANSLATE, "loop de jogo"),
+            GlossaryEntry("Observer", GLOSSARY_RULE_PRESERVE),
+            GlossaryEntry("AntiPattern", GLOSSARY_RULE_FORBIDDEN),
+        ]
+    )
+
+    saved_path = save_glossary(glossary_path, glossary)
+
+    assert saved_path == glossary_path
+    assert glossary_to_dict(glossary) == {
+        "Game Loop": {"rule": "translate", "translation": "loop de jogo"},
+        "Observer": {"rule": "preserve"},
+        "AntiPattern": {"rule": "forbidden"},
+    }
+    assert load_glossary(glossary_path).entries == glossary.entries
 
 
 def test_apply_glossary_with_usage_counts_terms_and_scans_output():

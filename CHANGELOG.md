@@ -46,6 +46,8 @@ lancadas e secoes versionadas quando uma release for publicada.
   mantendo compatibilidade com o formato simples de pares de termos.
 - Relatorio de uso do glossario com contagem de termos aplicados, termos
   obrigatorios ausentes e termos proibidos encontrados na saida.
+- Menu guiado de glossarios no modo comum, com criacao, edicao, previa,
+  validacao, salvamento local e selecao antes de traduzir.
 
 ### Atualizado
 

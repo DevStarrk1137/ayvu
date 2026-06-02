@@ -9,7 +9,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Tradução de documentos XHTML/HTML internos do EPUB.
 - Preservação de tags, CSS, imagens, links, sumário e nomes de arquivos internos.
 - Cache SQLite para retomar traduções interrompidas e evitar chamadas repetidas.
-- Glossário JSON opcional para padronizar termos técnicos.
+- Glossário JSON opcional e fluxo guiado para padronizar termos técnicos.
 - Proteção de URLs, caminhos, comandos, versões, código inline e identificadores técnicos simples durante a tradução.
 - Nome de saída automático baseado no idioma de destino.
 - Preview traduzido de uma amostra inicial do EPUB.
@@ -149,7 +149,7 @@ previews, e a pasta base organiza biblioteca, previews, relatórios e traduçõe
 perguntar de novo.
 
 Ao executar apenas `uv run ayvu`, o Ayvu abre um primeiro menu guiado com opções para traduzir
-livro, gerar preview, abrir biblioteca, acessar configurações, mostrar ajuda ou sair. A biblioteca
+livro, gerar preview, abrir biblioteca, gerenciar glossários, acessar configurações, mostrar ajuda ou sair. A biblioteca
 lista EPUBs das pastas `Original` e `Traduzidos`, mostra as versões disponíveis de cada livro e
 permite abrir o original ou uma tradução no leitor configurado ou no leitor padrão detectado no
 sistema. A opção `Settings` permite ver e alterar idioma padrão, pasta base dos livros, nomes das
@@ -179,7 +179,30 @@ uv run ayvu translate livro.epub \
   --output livro-ptbr.epub
 ```
 
-Usar glossário:
+Usar glossário no modo comum:
+
+```bash
+uv run ayvu
+```
+
+Escolha `Glossaries` para criar ou editar um glossário guiado. O Ayvu pede o termo original,
+permite informar uma tradução preferida ou preservar o termo sem tradução, mostra uma prévia,
+valida o conteúdo e salva o JSON em:
+
+```text
+$XDG_CONFIG_HOME/ayvu/glossaries
+```
+
+Quando `XDG_CONFIG_HOME` não estiver definido, o fallback é:
+
+```text
+~/.config/ayvu/glossaries
+```
+
+Se houver glossários salvos, o fluxo guiado de tradução permite escolher um deles antes de
+confirmar a saída do EPUB.
+
+Usar glossário no modo desenvolvedor:
 
 ```bash
 cp glossary.example.json glossary.json
@@ -250,7 +273,9 @@ Use `translate` para definir uma tradução preferida e `preserve` para manter u
 
 Quando um glossário é usado, o relatório final conta quantas aplicações de `translate` e `preserve` ocorreram, inclusive em textos vindos do cache. O relatório também avisa termos obrigatórios ausentes e termos proibidos encontrados na saída.
 
-Use `glossary.example.json` como base. O arquivo `glossary.json` local é ignorado pelo Git para evitar versionar preferências pessoais ou conteúdo privado.
+Use `Glossaries` no modo comum para criar glossários guiados ou `glossary.example.json`
+como base para o modo desenvolvedor. O arquivo `glossary.json` local e os glossários privados
+são ignorados pelo Git para evitar versionar preferências pessoais ou conteúdo privado.
 
 Antes de enviar cada trecho ao tradutor, o Ayvu protege termos especiais como URLs, caminhos de arquivo, comandos de terminal, versões como `v1.2.0`, código inline entre crases, placeholders e identificadores técnicos simples. Esses termos são restaurados antes da aplicação do glossário e antes de salvar a tradução no cache.
 
@@ -340,6 +365,9 @@ Sem caminhos explícitos, a pasta base e os nomes de pastas configurados definem
 previews, traduções, relatórios Markdown e estados de processamento, além das pastas usadas pela
 biblioteca. O campo `reader_app` define o comando usado para abrir EPUBs pela biblioteca quando o
 leitor padrão do sistema não for suficiente.
+
+Glossários criados pelo modo comum ficam ao lado da configuração, em `glossaries/`, e podem ser
+selecionados antes de iniciar uma tradução guiada.
 
 ## Testes
 

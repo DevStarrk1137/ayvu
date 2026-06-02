@@ -11,7 +11,7 @@ from rich.table import Table
 
 from .cache import TranslationCache
 from .cli_progress import TranslationProgress, TranslationProgressSnapshot
-from .config import DEFAULT_BOOKS_DIR, AyvuConfig, ConfigError, ConfigStore, FolderNames
+from .config import DEFAULT_BOOKS_DIR, AyvuConfig, ConfigError, ConfigStore, FolderNames, default_glossaries_dir
 from .domain import (
     LanguagePair,
     OutputPlan,
@@ -21,6 +21,15 @@ from .domain import (
     default_translated_books_dir,
 )
 from .epub_io import TranslationReport, detect_epub_language, extract_markdown, inspect_epub, translate_epub
+from .glossary import (
+    GLOSSARY_RULE_PRESERVE,
+    GLOSSARY_RULE_TRANSLATE,
+    Glossary,
+    GlossaryEntry,
+    GlossaryError,
+    load_glossary,
+    save_glossary,
+)
 from .library import LibraryBook, LibraryOpenError, open_library_epub, scan_library
 from .preflight import PreflightError, run_translation_preflight
 from .resume import (
@@ -45,7 +54,8 @@ GUIDED_TRANSLATE_OPTION = "1"
 GUIDED_PREVIEW_OPTION = "2"
 GUIDED_LIBRARY_OPTION = "3"
 GUIDED_SETTINGS_OPTION = "4"
-GUIDED_HELP_OPTION = "5"
+GUIDED_GLOSSARY_OPTION = "5"
+GUIDED_HELP_OPTION = "6"
 GUIDED_EXIT_OPTION = "0"
 GUIDED_DEFAULT_LANGUAGE_OPTION = "1"
 GUIDED_OTHER_LANGUAGE_OPTION = "2"
@@ -55,6 +65,12 @@ SETTINGS_BOOKS_DIR_OPTION = "2"
 SETTINGS_FOLDERS_OPTION = "3"
 SETTINGS_READER_OPTION = "4"
 SETTINGS_EXIT_OPTION = "0"
+GLOSSARY_CREATE_OPTION = "1"
+GLOSSARY_EDIT_OPTION = "2"
+GLOSSARY_PREVIEW_OPTION = "3"
+GLOSSARY_BACK_OPTION = "0"
+GLOSSARY_RULE_TRANSLATE_OPTION = "1"
+GLOSSARY_RULE_PRESERVE_OPTION = "2"
 EXISTING_OUTPUT_OVERWRITE_OPTION = "1"
 EXISTING_OUTPUT_RENAME_OPTION = "2"
 EXISTING_OUTPUT_CANCEL_OPTION = "0"
@@ -765,6 +781,7 @@ def _print_guided_main_menu() -> None:
     table.add_row(GUIDED_PREVIEW_OPTION, "Generate preview")
     table.add_row(GUIDED_LIBRARY_OPTION, "Open library")
     table.add_row(GUIDED_SETTINGS_OPTION, "Settings")
+    table.add_row(GUIDED_GLOSSARY_OPTION, "Glossaries")
     table.add_row(GUIDED_HELP_OPTION, "Show command help")
     table.add_row(GUIDED_EXIT_OPTION, "Exit")
     console.print(table)
@@ -787,6 +804,10 @@ def _handle_guided_main_choice(choice: str, ctx: typer.Context, config: AyvuConf
         _run_guided_settings(config)
         return True
 
+    if choice == GUIDED_GLOSSARY_OPTION:
+        _run_guided_glossaries()
+        return True
+
     if choice == GUIDED_HELP_OPTION:
         console.print(ctx.get_help())
         return True
@@ -803,6 +824,7 @@ def _handle_guided_main_choice(choice: str, ctx: typer.Context, config: AyvuConf
 def _run_guided_translation(config: AyvuConfig) -> None:
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
     target = _choose_guided_target_language(config.default_target_language)
+    glossary_path = _choose_guided_translation_glossary()
     _run_translation(
         epub_path=epub_path,
         output=None,
@@ -811,7 +833,7 @@ def _run_guided_translation(config: AyvuConfig) -> None:
         translator_name="libretranslate",
         url=DEFAULT_TRANSLATOR_URL,
         cache_path=Path(".cache/traducoes.sqlite"),
-        glossary_path=None,
+        glossary_path=glossary_path,
         dry_run=False,
         fail_fast=False,
         overwrite=False,
@@ -827,6 +849,248 @@ def _run_guided_preview(config: AyvuConfig) -> None:
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
     target = _choose_guided_target_language(config.default_target_language)
     _run_preview(epub_path, target=target, mode=UserMode.COMMON, config=config)
+
+
+def _run_guided_glossaries() -> None:
+    directory = default_glossaries_dir()
+    _print_guided_glossary_menu(directory)
+    choice = typer.prompt("Choose a glossary action", default=GLOSSARY_BACK_OPTION).strip()
+    if choice == GLOSSARY_CREATE_OPTION:
+        _create_guided_glossary(directory)
+        return
+    if choice == GLOSSARY_EDIT_OPTION:
+        _edit_guided_glossary(directory)
+        return
+    if choice == GLOSSARY_PREVIEW_OPTION:
+        _preview_guided_glossary(directory)
+        return
+    if choice == GLOSSARY_BACK_OPTION:
+        console.print("Glossaries closed.")
+        return
+
+    console.print("[red]Invalid glossary action.[/red] Choose 1, 2, 3, or 0.")
+
+
+def _print_guided_glossary_menu(directory: Path) -> None:
+    console.print(f"[yellow]Glossaries folder:[/yellow] {directory}")
+    table = Table(title="Glossaries")
+    table.add_column("Option")
+    table.add_column("Action")
+    table.add_row(GLOSSARY_CREATE_OPTION, "Create glossary")
+    table.add_row(GLOSSARY_EDIT_OPTION, "Edit saved glossary")
+    table.add_row(GLOSSARY_PREVIEW_OPTION, "Preview saved glossary")
+    table.add_row(GLOSSARY_BACK_OPTION, "Back")
+    console.print(table)
+
+
+def _create_guided_glossary(directory: Path) -> Path | None:
+    path = _prompt_new_glossary_path(directory)
+    if path is None:
+        return None
+
+    glossary = _prompt_guided_glossary_terms(Glossary())
+    return _save_guided_glossary(path, glossary)
+
+
+def _edit_guided_glossary(directory: Path) -> Path | None:
+    files = _list_glossary_files(directory)
+    if not files:
+        console.print("[yellow]No saved glossaries found.[/yellow]")
+        return None
+
+    path = _prompt_saved_glossary_path(files)
+    if path is None:
+        return None
+
+    glossary = _load_guided_glossary(path)
+    if glossary is None:
+        return None
+
+    updated = _prompt_guided_glossary_terms(glossary)
+    return _save_guided_glossary(path, updated)
+
+
+def _preview_guided_glossary(directory: Path) -> None:
+    files = _list_glossary_files(directory)
+    if not files:
+        console.print("[yellow]No saved glossaries found.[/yellow]")
+        return
+
+    path = _prompt_saved_glossary_path(files)
+    if path is None:
+        return
+
+    glossary = _load_guided_glossary(path)
+    if glossary is None:
+        return
+    _print_guided_glossary_preview(glossary)
+
+
+def _choose_guided_translation_glossary() -> Path | None:
+    files = _list_glossary_files(default_glossaries_dir())
+    if not files:
+        return None
+
+    console.print("[yellow]Saved glossaries are available.[/yellow]")
+    while True:
+        path = _prompt_saved_glossary_path(files, back_label="Run without glossary")
+        if path is None:
+            return None
+        if _load_guided_glossary(path) is not None:
+            console.print(f"[green]Glossary selected:[/green] {path}")
+            return path
+        console.print("Choose another glossary or run without glossary.")
+
+
+def _prompt_new_glossary_path(directory: Path) -> Path | None:
+    while True:
+        raw_name = typer.prompt("Glossary name", default="glossary").strip()
+        stem = _safe_filename_part(Path(raw_name).stem or raw_name).lower()
+        path = directory / f"{stem}.json"
+        if not path.exists():
+            return path
+
+        console.print(f"[yellow]Glossary already exists:[/yellow] {path}")
+        if not typer.confirm("Choose another glossary name?", default=True):
+            console.print("Glossary was not created.")
+            return None
+
+
+def _prompt_guided_glossary_terms(glossary: Glossary) -> Glossary:
+    entries = list(glossary.entries)
+    if entries:
+        _print_guided_glossary_preview(Glossary(entries))
+
+    while True:
+        term = typer.prompt("Original term (leave empty to finish)", default="").strip()
+        if not term:
+            if entries:
+                return Glossary(entries)
+            console.print("[yellow]No glossary terms were added.[/yellow]")
+            return Glossary()
+
+        entry = _prompt_guided_glossary_entry(term)
+        replaced = _upsert_glossary_entry(entries, entry)
+        if replaced:
+            console.print(f"[green]Term updated:[/green] {entry.term}")
+        else:
+            console.print(f"[green]Term added:[/green] {entry.term}")
+        _print_guided_glossary_preview(Glossary(entries))
+
+        if not typer.confirm("Add another term?", default=True):
+            return Glossary(entries)
+
+
+def _prompt_guided_glossary_entry(term: str) -> GlossaryEntry:
+    console.print(f"{GLOSSARY_RULE_TRANSLATE_OPTION}. Use a preferred translation")
+    console.print(f"{GLOSSARY_RULE_PRESERVE_OPTION}. Preserve without translation")
+    while True:
+        rule_choice = typer.prompt("Choose term rule", default=GLOSSARY_RULE_TRANSLATE_OPTION).strip()
+        if rule_choice == GLOSSARY_RULE_TRANSLATE_OPTION:
+            translation = _prompt_required_text("Desired translation")
+            return GlossaryEntry(term=term, rule=GLOSSARY_RULE_TRANSLATE, translation=translation)
+        if rule_choice == GLOSSARY_RULE_PRESERVE_OPTION:
+            return GlossaryEntry(term=term, rule=GLOSSARY_RULE_PRESERVE)
+        console.print("[red]Invalid term rule.[/red] Choose 1 or 2.")
+
+
+def _prompt_required_text(prompt: str) -> str:
+    while True:
+        value = typer.prompt(prompt).strip()
+        if value:
+            return value
+        console.print("[red]Value must not be empty.[/red]")
+
+
+def _upsert_glossary_entry(entries: list[GlossaryEntry], entry: GlossaryEntry) -> bool:
+    for index, existing in enumerate(entries):
+        if existing.term.casefold() == entry.term.casefold():
+            entries[index] = entry
+            return True
+    entries.append(entry)
+    return False
+
+
+def _save_guided_glossary(path: Path, glossary: Glossary) -> Path | None:
+    if not glossary.entries:
+        console.print("[yellow]Glossary was not saved because it has no terms.[/yellow]")
+        return None
+
+    _print_guided_glossary_preview(glossary)
+    if not typer.confirm("Save this glossary?", default=True):
+        console.print("Glossary was not saved.")
+        return None
+
+    try:
+        saved_path = save_glossary(path, glossary)
+    except GlossaryError as exc:
+        console.print(f"[red]Glossary validation failed:[/red] {exc}")
+        return None
+
+    console.print(f"[green]Glossary saved:[/green] {saved_path}")
+    return saved_path
+
+
+def _load_guided_glossary(path: Path) -> Glossary | None:
+    try:
+        return load_glossary(path)
+    except GlossaryError as exc:
+        console.print(f"[red]Could not load glossary:[/red] {exc}")
+        return None
+
+
+def _prompt_saved_glossary_path(files: tuple[Path, ...], back_label: str = "Back") -> Path | None:
+    _print_saved_glossaries(files)
+    console.print(f"{GLOSSARY_BACK_OPTION}. {back_label}")
+
+    while True:
+        choice = typer.prompt("Choose glossary", default=GLOSSARY_BACK_OPTION).strip()
+        if choice == GLOSSARY_BACK_OPTION:
+            return None
+        if choice.isdigit() and 1 <= int(choice) <= len(files):
+            return files[int(choice) - 1]
+        console.print(f"[red]Invalid glossary.[/red] Choose 1-{len(files)} or 0.")
+
+
+def _print_saved_glossaries(files: tuple[Path, ...]) -> None:
+    table = Table(title="Saved glossaries")
+    table.add_column("Option")
+    table.add_column("Name")
+    table.add_column("Terms")
+    for index, path in enumerate(files, start=1):
+        table.add_row(str(index), path.stem, _glossary_term_count(path))
+    console.print(table)
+
+
+def _glossary_term_count(path: Path) -> str:
+    glossary = _load_guided_glossary(path)
+    if glossary is None:
+        return "invalid"
+    return str(len(glossary.entries))
+
+
+def _print_guided_glossary_preview(glossary: Glossary) -> None:
+    if not glossary.entries:
+        console.print("[yellow]Glossary has no terms yet.[/yellow]")
+        return
+
+    table = Table(title="Glossary preview")
+    table.add_column("Term")
+    table.add_column("Rule")
+    table.add_column("Translation")
+    for entry in glossary.entries:
+        table.add_row(entry.term, entry.rule, entry.translation or "-")
+    console.print(table)
+
+
+def _list_glossary_files(directory: Path) -> tuple[Path, ...]:
+    if not directory.exists():
+        return ()
+    try:
+        return tuple(sorted(path for path in directory.glob("*.json") if path.is_file()))
+    except OSError as exc:
+        console.print(f"[yellow]Could not list glossaries:[/yellow] {exc}")
+        return ()
 
 
 def _run_guided_library(config: AyvuConfig) -> None:
