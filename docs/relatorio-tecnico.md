@@ -357,6 +357,8 @@ source_lang + target_lang + SHA-256(texto original)
 
 O glossário é aplicado depois da tradução e também sobre textos recuperados do cache. Isso mantém o comportamento consistente entre texto novo e texto reaproveitado.
 
+Antes de enviar texto ao tradutor, `src/ayvu/html_translate.py` protege termos especiais com placeholders internos e os restaura depois da chamada HTTP. O escopo protegido inclui URLs, caminhos de arquivo, comandos de terminal, versões como `v1.2.0`, placeholders, código inline e identificadores técnicos simples. A tradução restaurada é gravada no cache antes da aplicação do glossário.
+
 Textos longos são divididos antes de serem enviados ao tradutor. A regra atual tenta dividir por:
 
 ```text
@@ -460,7 +462,7 @@ Se o servidor estiver indisponível, o Ayvu deve falhar com uma mensagem orienta
 
 ## 18. Testes e CI
 
-A suíte atual tem 100 testes definidos em `tests/`, cobrindo:
+A suíte atual tem 159 testes definidos em `tests/`, cobrindo:
 
 - cache SQLite;
 - chunking;
@@ -491,15 +493,14 @@ uv run pytest
 Prioridades que ainda fazem sentido:
 
 1. Traduzir blocos HTML preservando tags internas por placeholders.
-2. Proteger termos especiais antes da tradução: URLs, comandos, caminhos, versões, placeholders e código inline.
-3. Evoluir o glossário para regras explícitas de preservar, traduzir e proibir termos.
-4. Melhorar validação pós-tradução, incluindo links, capítulos vazios, imagens ausentes e texto não traduzido.
-5. Criar configuração persistente para idioma padrão, pastas e preferências.
-6. Melhorar cache com inspeção, limpeza, exportação e escopo por backend/modelo/glossário.
-7. Adicionar modo `--cache-only`.
-8. Suportar backends alternativos.
-9. Documentar arquitetura em um documento dedicado.
-10. Preparar empacotamento e releases públicas.
+2. Evoluir o glossário para regras explícitas de preservar, traduzir e proibir termos.
+3. Melhorar validação pós-tradução, incluindo links, capítulos vazios, imagens ausentes e texto não traduzido.
+4. Criar configuração persistente para idioma padrão, pastas e preferências.
+5. Melhorar cache com inspeção, limpeza, exportação e escopo por backend/modelo/glossário.
+6. Adicionar modo `--cache-only`.
+7. Suportar backends alternativos.
+8. Documentar arquitetura em um documento dedicado.
+9. Preparar empacotamento e releases públicas.
 
 ## 20. Possível suporte a PDF
 

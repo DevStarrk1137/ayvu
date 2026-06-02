@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -13,7 +14,52 @@ from .translator import Translator
 
 
 IGNORED_TAGS = {"script", "style", "code", "pre", "kbd", "samp", "svg", "math"}
+PROTECTED_PLACEHOLDER_PREFIX = "__AYVU_PROTECTED_"
+PROTECTED_PLACEHOLDER_SUFFIX = "__"
 TextProgressCallback = Callable[[str], None]
+
+
+SPECIAL_TERM_PATTERNS = (
+    re.compile(r"`[^`\n]+`"),
+    re.compile(r"\{\{[^{}\n]+\}\}"),
+    re.compile(r"\{[A-Za-z_][A-Za-z0-9_]*\}"),
+    re.compile(r"%(?:\([A-Za-z_][A-Za-z0-9_]*\))?[sd]"),
+    re.compile(r"(?m)(?<!\S)(?:[$#>]\s*)[^\n]+"),
+    re.compile(
+        r"(?<![\w-])"
+        r"(?:ayvu|uv|git|docker|pip|python3?|pytest|curl|wget|npm|node|cargo|poetry)"
+        r"(?:\s+(?:[^\s`<>(),;!?]+))+",
+    ),
+    re.compile(r"https?://[^\s`<>()\"']+"),
+    re.compile(r"(?<![\w./-])(?:~|\.{1,2})?/[^\s`<>()\"']+"),
+    re.compile(r"(?<![\w./-])(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+"),
+    re.compile(r"(?<![\w./-])[A-Za-z]:\\[^\s`<>()\"']+"),
+    re.compile(r"(?<![\w.-])v?\d+\.\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.-]+)?\b"),
+    re.compile(r"(?<!\w)--?[A-Za-z][A-Za-z0-9-]*(?:=[^\s`<>()]+)?"),
+    re.compile(r"(?<!\w)\$[A-Z_][A-Z0-9_]*\b"),
+    re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b"),
+    re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\(\)"),
+    re.compile(r"\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]*\b"),
+    re.compile(r"\b[A-Za-z]+[A-Z][A-Za-z0-9]*\b"),
+    re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b"),
+)
+
+
+@dataclass(frozen=True)
+class ProtectedSpan:
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class ProtectedText:
+    text: str
+    terms: tuple[tuple[str, str], ...] = ()
+
+    def restore(self, translated: str) -> str:
+        for placeholder, original in self.terms:
+            translated = translated.replace(placeholder, original)
+        return translated
 
 
 @dataclass
@@ -122,11 +168,12 @@ def translate_text(
     if dry_run:
         return TextTranslationResult(text=text)
 
+    protected = _protect_special_terms(parts.core)
     translated_chunks = [
         translator.translate(chunk, source, target)
-        for chunk in split_text(parts.core, limit=chunk_limit)
+        for chunk in split_text(protected.text, limit=chunk_limit)
     ]
-    translated = "".join(translated_chunks)
+    translated = protected.restore("".join(translated_chunks))
     cache.set(cache_key, translated)
     translated = apply_glossary(translated, glossary)
     return TextTranslationResult(text=parts.restore(translated))
@@ -152,6 +199,65 @@ def _is_visible_text_node(text_node: NavigableString) -> bool:
             return False
         parent = parent.parent
     return True
+
+
+def _protect_special_terms(text: str) -> ProtectedText:
+    spans = _special_term_spans(text)
+    if not spans:
+        return ProtectedText(text=text)
+
+    protected_parts: list[str] = []
+    terms: list[tuple[str, str]] = []
+    cursor = 0
+    for span in spans:
+        placeholder = _protected_placeholder(len(terms))
+        protected_parts.append(text[cursor : span.start])
+        protected_parts.append(placeholder)
+        terms.append((placeholder, text[span.start : span.end]))
+        cursor = span.end
+
+    protected_parts.append(text[cursor:])
+    return ProtectedText(text="".join(protected_parts), terms=tuple(terms))
+
+
+def _special_term_spans(text: str) -> list[ProtectedSpan]:
+    spans: list[ProtectedSpan] = []
+    for pattern in SPECIAL_TERM_PATTERNS:
+        for match in pattern.finditer(text):
+            span = _clean_match_span(text, match.start(), match.end())
+            if span is None or _overlaps_any(span, spans):
+                continue
+            spans.append(span)
+    return sorted(spans, key=lambda span: span.start)
+
+
+def _clean_match_span(text: str, start: int, end: int) -> ProtectedSpan | None:
+    while start < end and text[start].isspace():
+        start += 1
+    while start < end and text[end - 1] in ".,;:!?":
+        end -= 1
+    while (
+        start < end
+        and text[end - 1] in ")]}"
+        and _has_unmatched_closer(text[start:end], text[end - 1])
+    ):
+        end -= 1
+    if start >= end:
+        return None
+    return ProtectedSpan(start=start, end=end)
+
+
+def _has_unmatched_closer(value: str, closer: str) -> bool:
+    opener = {")": "(", "]": "[", "}": "{"}[closer]
+    return value.count(closer) > value.count(opener)
+
+
+def _overlaps_any(candidate: ProtectedSpan, spans: list[ProtectedSpan]) -> bool:
+    return any(candidate.start < span.end and candidate.end > span.start for span in spans)
+
+
+def _protected_placeholder(index: int) -> str:
+    return f"{PROTECTED_PLACEHOLDER_PREFIX}{index}{PROTECTED_PLACEHOLDER_SUFFIX}"
 
 
 def _notify_text_processed(callback: TextProgressCallback | None, status: str) -> None:

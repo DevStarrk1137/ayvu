@@ -10,6 +10,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Preservação de tags, CSS, imagens, links, sumário e nomes de arquivos internos.
 - Cache SQLite para retomar traduções interrompidas e evitar chamadas repetidas.
 - Glossário JSON opcional para padronizar termos técnicos.
+- Proteção de URLs, caminhos, comandos, versões, código inline e identificadores técnicos simples durante a tradução.
 - Nome de saída automático baseado no idioma de destino.
 - Preview traduzido de uma amostra inicial do EPUB.
 - Modo comum guiado e modo desenvolvedor direto.
@@ -230,6 +231,8 @@ O glossário é um arquivo JSON simples com pares de termos:
 ```
 
 Use `glossary.example.json` como base. O arquivo `glossary.json` local é ignorado pelo Git para evitar versionar preferências pessoais ou conteúdo privado.
+
+Antes de enviar cada trecho ao tradutor, o Ayvu protege termos especiais como URLs, caminhos de arquivo, comandos de terminal, versões como `v1.2.0`, código inline entre crases, placeholders e identificadores técnicos simples. Esses termos são restaurados antes da aplicação do glossário e antes de salvar a tradução no cache.
 
 ## Cache e Retomada
 
