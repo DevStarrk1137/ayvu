@@ -171,8 +171,8 @@ def test_translate_epub_translates_minimal_generated_epub_without_mutating_input
         assert any(name.endswith("images/pixel.png") for name in names)
 
     assert "PT:Hello reader. Visit" in chapter
-    assert "PT:chapter two" in chapter
-    assert "chapter2.xhtml#answer" in chapter
+    # The paragraph is translated as one block, keeping the inline link and its text.
+    assert '<a href="chapter2.xhtml#answer">chapter two</a>' in chapter
     assert "../images/pixel.png" in chapter
 
 

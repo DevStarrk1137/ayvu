@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import copy
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from xml.sax.saxutils import escape
 
 from bs4 import BeautifulSoup, Comment, Declaration, Doctype, NavigableString, ProcessingInstruction
 
@@ -14,12 +16,28 @@ from .translator import Translator
 
 
 IGNORED_TAGS = {"script", "style", "code", "pre", "kbd", "samp", "svg", "math"}
+# Ignored tags that may appear inline inside a block. Their whole markup is kept
+# untranslated as an opaque token instead of acting as a block boundary.
+IGNORED_INLINE_TAGS = {"code", "kbd", "samp"}
+# Inline tags whose text is translated together with the surrounding block. The
+# tags themselves are replaced by neutral placeholders and restored afterwards.
+INLINE_TAGS = {
+    "a", "abbr", "b", "bdi", "bdo", "br", "cite", "data", "del", "dfn", "em",
+    "i", "ins", "mark", "q", "rp", "rt", "ruby", "s", "small", "span", "strike",
+    "strong", "sub", "sup", "time", "u", "var", "wbr",
+}
 PROTECTED_PLACEHOLDER_PREFIX = "__AYVU_PROTECTED_"
 PROTECTED_PLACEHOLDER_SUFFIX = "__"
+TAG_PLACEHOLDER_PREFIX = "__AYVU_TAG_"
+TAG_PLACEHOLDER_SUFFIX = "__"
+TAG_TOKEN_PATTERN = re.compile(r"__AYVU_TAG_(\d+)__")
+TAG_MARKUP_SENTINEL = "AYVU_TAG_MARKUP_SENTINEL"
+FRAGMENT_ROOT_TAG = "__ayvu_fragment_root__"
 TextProgressCallback = Callable[[str], None]
 
 
 SPECIAL_TERM_PATTERNS = (
+    TAG_TOKEN_PATTERN,
     re.compile(r"`[^`\n]+`"),
     re.compile(r"\{\{[^{}\n]+\}\}"),
     re.compile(r"\{[A-Za-z_][A-Za-z0-9_]*\}"),
@@ -115,16 +133,15 @@ def translate_html(
     soup = BeautifulSoup(html, "lxml-xml")
     stats = HtmlTranslationStats()
 
-    for text_node in list(soup.find_all(string=True)):
-        if not _is_translatable_text_node(text_node):
+    for run in _collect_translation_runs(soup):
+        template, tag_markup = _build_block_template(run)
+        if not _has_translatable_text(template):
             stats.skipped += 1
             continue
 
-        original = str(text_node)
-
         try:
             result = translate_text(
-                original,
+                template,
                 translator=translator,
                 cache=cache,
                 source=source,
@@ -134,7 +151,8 @@ def translate_html(
                 chunk_limit=chunk_limit,
             )
             if not dry_run:
-                text_node.replace_with(NavigableString(result.text))
+                fragment = _expand_tag_tokens(escape(result.text), tag_markup)
+                _replace_run(run, _parse_fragment_nodes(fragment))
             stats.glossary_usage.merge(result.glossary_usage)
             _record_success(stats, result.from_cache, dry_run, on_text_processed)
         except Exception as exc:
@@ -191,10 +209,138 @@ def _visible_text_nodes(soup: BeautifulSoup) -> list[NavigableString]:
     return [text_node for text_node in soup.find_all(string=True) if _is_visible_text_node(text_node)]
 
 
-def _is_translatable_text_node(text_node: NavigableString) -> bool:
-    if not _is_visible_text_node(text_node):
+def _collect_translation_runs(element) -> list[list]:
+    """Group consecutive inline siblings into translation runs.
+
+    Block-level and ignored-block children act as boundaries; we recurse into
+    them so their own inline content becomes separate runs. This keeps loose
+    text mixed with block elements from being lost.
+    """
+    runs: list[list] = []
+    current: list = []
+    for child in list(element.children):
+        if _is_run_member(child):
+            current.append(child)
+            continue
+        if current:
+            runs.append(current)
+            current = []
+        if _should_recurse_into(child):
+            runs.extend(_collect_translation_runs(child))
+    if current:
+        runs.append(current)
+    return runs
+
+
+def _is_run_member(node) -> bool:
+    if _is_special_string(node):
         return False
-    return bool(str(text_node).strip())
+    if isinstance(node, NavigableString):
+        return True
+    name = _tag_name(node)
+    if name in IGNORED_INLINE_TAGS:
+        return True
+    if name in INLINE_TAGS:
+        return not _contains_block_descendant(node)
+    return False
+
+
+def _should_recurse_into(node) -> bool:
+    name = _tag_name(node)
+    return bool(name) and name not in IGNORED_TAGS
+
+
+def _contains_block_descendant(node) -> bool:
+    return any(
+        _tag_name(descendant) not in INLINE_TAGS
+        and _tag_name(descendant) not in IGNORED_INLINE_TAGS
+        for descendant in node.find_all(True)
+    )
+
+
+def _build_block_template(run: list) -> tuple[str, list[str]]:
+    parts: list[str] = []
+    tag_markup: list[str] = []
+    for node in run:
+        _emit_template_node(node, parts, tag_markup)
+    return "".join(parts), tag_markup
+
+
+def _emit_template_node(node, parts: list[str], tag_markup: list[str]) -> None:
+    if _is_special_string(node):
+        parts.append(_register_tag_markup(tag_markup, str(node)))
+        return
+    if isinstance(node, NavigableString):
+        parts.append(str(node))
+        return
+    if _tag_name(node) in IGNORED_INLINE_TAGS or _is_void_element(node):
+        parts.append(_register_tag_markup(tag_markup, str(node)))
+        return
+
+    open_markup, close_markup = _split_tag_markup(node)
+    parts.append(_register_tag_markup(tag_markup, open_markup))
+    for child in list(node.children):
+        _emit_template_node(child, parts, tag_markup)
+    parts.append(_register_tag_markup(tag_markup, close_markup))
+
+
+def _register_tag_markup(tag_markup: list[str], markup: str) -> str:
+    placeholder = f"{TAG_PLACEHOLDER_PREFIX}{len(tag_markup)}{TAG_PLACEHOLDER_SUFFIX}"
+    tag_markup.append(markup)
+    return placeholder
+
+
+def _split_tag_markup(node) -> tuple[str, str]:
+    clone = copy.copy(node)
+    clone.clear()
+    clone.append(NavigableString(TAG_MARKUP_SENTINEL))
+    open_markup, _, close_markup = str(clone).partition(TAG_MARKUP_SENTINEL)
+    return open_markup, close_markup
+
+
+def _has_translatable_text(template: str) -> bool:
+    return bool(TAG_TOKEN_PATTERN.sub("", template).strip())
+
+
+def _expand_tag_tokens(text: str, tag_markup: list[str]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        index = int(match.group(1))
+        if 0 <= index < len(tag_markup):
+            return tag_markup[index]
+        return match.group(0)
+
+    return TAG_TOKEN_PATTERN.sub(replace, text)
+
+
+def _parse_fragment_nodes(fragment: str) -> list:
+    soup = BeautifulSoup(f"<{FRAGMENT_ROOT_TAG}>{fragment}</{FRAGMENT_ROOT_TAG}>", "lxml-xml")
+    root = soup.find(FRAGMENT_ROOT_TAG)
+    if root is None:
+        return [NavigableString(fragment)]
+    return [child.extract() for child in list(root.children)]
+
+
+def _replace_run(run: list, new_nodes: list) -> None:
+    if not new_nodes:
+        return
+    anchor = run[0]
+    for node in new_nodes:
+        anchor.insert_before(node)
+    for node in run:
+        node.extract()
+
+
+def _is_special_string(node) -> bool:
+    return isinstance(node, (Comment, Declaration, Doctype, ProcessingInstruction))
+
+
+def _is_void_element(node) -> bool:
+    return not node.contents
+
+
+def _tag_name(node) -> str:
+    name = getattr(node, "name", None)
+    return name.lower() if isinstance(name, str) else ""
 
 
 def _is_visible_text_node(text_node: NavigableString) -> bool:
