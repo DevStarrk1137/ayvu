@@ -51,6 +51,10 @@ lancadas e secoes versionadas quando uma release for publicada.
 
 ### Atualizado
 
+- Traducao de HTML agora ocorre por bloco (paragrafos, titulos e itens de
+  lista), substituindo tags internas como `em`, `strong` e links por
+  placeholders e restaurando-as depois. O cache passa a usar o bloco como
+  unidade de traducao.
 - Saida padrao da traducao no modo comum agora e confirmada antes de iniciar.
 - Modo comum permite sobrescrever, escolher outro nome ou cancelar quando o EPUB
   de saida ja existe.

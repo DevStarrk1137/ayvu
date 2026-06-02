@@ -7,6 +7,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 ## Recursos
 
 - Tradução de documentos XHTML/HTML internos do EPUB.
+- Tradução por bloco (parágrafos, títulos e listas) preservando tags internas como `em`, `strong` e links via placeholders.
 - Preservação de tags, CSS, imagens, links, sumário e nomes de arquivos internos.
 - Cache SQLite para retomar traduções interrompidas e evitar chamadas repetidas.
 - Glossário JSON opcional e fluxo guiado para padronizar termos técnicos.
@@ -401,7 +402,6 @@ ayvu/
 
 ## Limitações
 
-- A tradução por nós de texto pode perder contexto em frases divididas por tags.
 - EPUBs com XHTML malformado podem depender do comportamento do parser.
 - Livros técnicos costumam exigir glossário para manter termos consistentes.
 - A qualidade final depende do servidor de tradução usado.

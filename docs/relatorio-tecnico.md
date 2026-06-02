@@ -50,7 +50,6 @@ Ainda não possui:
 
 - biblioteca completa com importação automática, fila e histórico;
 - gerenciamento automático do LibreTranslate;
-- tradução por bloco preservando tags internas;
 - validação EPUB avançada com EPUBCheck;
 - backends alternativos além de LibreTranslate;
 - interface gráfica ou web.
@@ -225,7 +224,7 @@ uv run ayvu --mode common translate livro.epub
 
 `src/ayvu/epub_io.py` cuida de leitura, inspeção, extração, tradução estrutural e escrita do EPUB final.
 
-`src/ayvu/html_translate.py` traduz HTML/XHTML em nível de nó de texto visível, preservando tags e ignorando conteúdo que não deve ser traduzido.
+`src/ayvu/html_translate.py` traduz HTML/XHTML por bloco (parágrafos, títulos e itens de lista), substituindo tags inline por placeholders neutros e restaurando-as depois, preservando tags e atributos e ignorando conteúdo que não deve ser traduzido.
 
 `src/ayvu/library.py` varre as pastas de biblioteca configuradas, agrupa EPUB original e traduções por livro e resolve o comando usado para abrir EPUBs no app leitor.
 
@@ -321,7 +320,7 @@ A regra principal é:
 ```text
 Não achatar HTML.
 Não usar get_text() no fluxo de tradução.
-Traduzir somente nós de texto visíveis.
+Traduzir somente texto visível ao leitor.
 ```
 
 Tags ignoradas:
@@ -332,21 +331,21 @@ script, style, code, pre, kbd, samp, svg, math
 
 Também são ignorados comentários, `DOCTYPE`, declarações XML e processing instructions.
 
+A tradução acontece por bloco. Sequências contíguas de texto e tags inline formam uma unidade de tradução, como parágrafos, títulos e itens de lista. As tags inline, como `em`, `strong` e links, viram placeholders neutros antes de enviar ao tradutor e são restauradas depois, preservando atributos e estrutura. Tags inline ignoradas (`code`, `kbd`, `samp`) e elementos vazios (como `br`) entram como placeholder opaco e não são traduzidos. Texto solto entre elementos de bloco continua sendo traduzido, sem perda.
+
 Exemplo:
 
 ```html
 <p>Any programming book with <em>Patterns</em> in its name.</p>
 ```
 
-Hoje isso pode ser traduzido em três nós separados:
+O parágrafo inteiro é traduzido como uma unidade, no formato:
 
 ```text
-"Any programming book with "
-"Patterns"
-" in its name."
+Any programming book with __AYVU_TAG_0__Patterns__AYVU_TAG_1__ in its name.
 ```
 
-Essa escolha preserva a estrutura, mas pode perder contexto. A melhoria planejada é traduzir blocos com placeholders de tags, sem enviar HTML real ao tradutor.
+onde `__AYVU_TAG_0__` e `__AYVU_TAG_1__` representam `<em>` e `</em>`. Depois da tradução, os placeholders voltam a ser as tags originais. Isso dá mais contexto ao tradutor sem enviar HTML real e sem perder estrutura.
 
 ## 12. Cache, glossário e chunking
 
@@ -355,6 +354,8 @@ O cache SQLite usa chave baseada em:
 ```text
 source_lang + target_lang + SHA-256(texto original)
 ```
+
+Com a tradução por bloco, o "texto original" é o bloco inteiro com placeholders de tags, então a unidade do cache é o bloco, não mais o nó de texto isolado. Blocos sem tags mantêm a mesma chave de antes; blocos com tags geram chaves novas, o que evita reaproveitar por engano entradas antigas guardadas por nó.
 
 O glossário é aplicado depois da tradução e também sobre textos recuperados do cache. Isso mantém o comportamento consistente entre texto novo e texto reaproveitado.
 
@@ -477,13 +478,14 @@ Se o servidor estiver indisponível, o Ayvu deve falhar com uma mensagem orienta
 
 ## 18. Testes e CI
 
-A suíte atual tem 167 testes definidos em `tests/`, cobrindo:
+A suíte atual tem 189 testes definidos em `tests/`, cobrindo:
 
 - cache SQLite;
 - chunking;
 - glossário;
 - configuração local;
 - tradução de HTML;
+- tradução por bloco com placeholders de tags;
 - preservação de tags;
 - extração de texto visível;
 - caminhos internos de EPUB;
@@ -507,15 +509,14 @@ uv run pytest
 
 Prioridades que ainda fazem sentido:
 
-1. Traduzir blocos HTML preservando tags internas por placeholders.
-2. Evoluir o glossário para regras explícitas de preservar, traduzir e proibir termos.
-3. Melhorar validação pós-tradução, incluindo links, capítulos vazios, imagens ausentes e texto não traduzido.
-4. Criar configuração persistente para idioma padrão, pastas e preferências.
-5. Melhorar cache com inspeção, limpeza, exportação e escopo por backend/modelo/glossário.
-6. Adicionar modo `--cache-only`.
-7. Suportar backends alternativos.
-8. Documentar arquitetura em um documento dedicado.
-9. Preparar empacotamento e releases públicas.
+1. Evoluir o glossário para regras explícitas de preservar, traduzir e proibir termos.
+2. Melhorar validação pós-tradução, incluindo links, capítulos vazios, imagens ausentes e texto não traduzido.
+3. Criar configuração persistente para idioma padrão, pastas e preferências.
+4. Melhorar cache com inspeção, limpeza, exportação e escopo por backend/modelo/glossário.
+5. Adicionar modo `--cache-only`.
+6. Suportar backends alternativos.
+7. Documentar arquitetura em um documento dedicado.
+8. Preparar empacotamento e releases públicas.
 
 ## 20. Possível suporte a PDF
 
