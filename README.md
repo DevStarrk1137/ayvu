@@ -207,7 +207,7 @@ uv run ayvu translate livro.epub \
   --dry-run
 ```
 
-Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, capítulos processados, textos traduzidos, cache e erros. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`.
+Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, capítulos processados, textos traduzidos, cache, erros e resumo do uso do glossário quando houver glossário configurado. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`.
 
 Extrair texto visível para Markdown:
 
@@ -233,10 +233,12 @@ Também aceita regras explícitas por termo:
 {
   "Game Loop": {
     "rule": "translate",
-    "translation": "loop de jogo"
+    "translation": "loop de jogo",
+    "required": true
   },
   "Observer": {
-    "rule": "preserve"
+    "rule": "preserve",
+    "required": true
   },
   "AntiPattern": {
     "rule": "forbidden"
@@ -244,7 +246,9 @@ Também aceita regras explícitas por termo:
 }
 ```
 
-Use `translate` para definir uma tradução preferida e `preserve` para manter um termo padronizado no texto final. A regra `forbidden` marca termos que não devem aparecer na saída e já é carregada e validada pelo glossário; relatórios de ocorrências ficam em uma etapa separada.
+Use `translate` para definir uma tradução preferida e `preserve` para manter um termo padronizado no texto final. Use `required: true` em regras `translate` ou `preserve` quando o termo esperado deve aparecer na saída traduzida. A regra `forbidden` marca termos que não devem aparecer na saída.
+
+Quando um glossário é usado, o relatório final conta quantas aplicações de `translate` e `preserve` ocorreram, inclusive em textos vindos do cache. O relatório também avisa termos obrigatórios ausentes e termos proibidos encontrados na saída.
 
 Use `glossary.example.json` como base. O arquivo `glossary.json` local é ignorado pelo Git para evitar versionar preferências pessoais ou conteúdo privado.
 

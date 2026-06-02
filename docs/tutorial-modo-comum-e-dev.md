@@ -127,10 +127,12 @@ Para regras explícitas, use `translate`, `preserve` ou `forbidden` por termo:
 {
   "Game Loop": {
     "rule": "translate",
-    "translation": "loop de jogo"
+    "translation": "loop de jogo",
+    "required": true
   },
   "Observer": {
-    "rule": "preserve"
+    "rule": "preserve",
+    "required": true
   },
   "AntiPattern": {
     "rule": "forbidden"
@@ -150,8 +152,9 @@ uv run ayvu translate livro.epub \
 ```
 
 O glossário é aplicado depois da tradução e também sobre textos vindos do cache.
-A regra `forbidden` é carregada e validada pelo glossário, mas o relatório de
-ocorrências fica para uma etapa separada.
+Use `required: true` em regras `translate` ou `preserve` quando o termo esperado
+deve aparecer na saída. Ao final, o relatório conta termos aplicados e avisa
+termos obrigatórios ausentes ou termos `forbidden` encontrados no texto final.
 
 ### Usar cache de forma consistente
 

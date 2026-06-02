@@ -1,6 +1,12 @@
 from ayvu.cache import CacheKey, TranslationCache
 from ayvu.domain import LanguagePair
-from ayvu.glossary import GLOSSARY_RULE_PRESERVE, GLOSSARY_RULE_TRANSLATE, Glossary, GlossaryEntry
+from ayvu.glossary import (
+    GLOSSARY_RULE_FORBIDDEN,
+    GLOSSARY_RULE_PRESERVE,
+    GLOSSARY_RULE_TRANSLATE,
+    Glossary,
+    GlossaryEntry,
+)
 from ayvu.html_translate import extract_visible_text, translate_html, translate_text
 from ayvu.translator import Translator
 
@@ -99,6 +105,43 @@ def test_translate_text_applies_advanced_glossary_rules_to_cache_hits(tmp_path):
     assert result.text == "Observer uses the loop de jogo"
     assert result.from_cache
     assert translator.calls == []
+
+
+def test_translate_text_reports_glossary_usage_from_cache_hits(tmp_path):
+    translator = FakeTranslator()
+    glossary = Glossary(
+        [
+            GlossaryEntry("Observer", GLOSSARY_RULE_PRESERVE, required=True),
+            GlossaryEntry("Game Loop", GLOSSARY_RULE_TRANSLATE, "loop de jogo", required=True),
+            GlossaryEntry("AntiPattern", GLOSSARY_RULE_FORBIDDEN),
+        ]
+    )
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        cache_key = CacheKey(text="Keep me", language_pair=LanguagePair(source="en", target="pt"))
+        cache.set(cache_key, "observer uses the Game Loop and AntiPattern")
+
+        result = translate_text("Keep me", translator, cache, "en", "pt", glossary=glossary)
+
+    assert result.glossary_usage.applied_terms == {"Game Loop": 1, "Observer": 1}
+    assert result.glossary_usage.required_terms_present == {"Game Loop": 1, "Observer": 1}
+    assert result.glossary_usage.forbidden_terms_found == {"AntiPattern": 1}
+
+
+def test_translate_html_accumulates_glossary_usage(tmp_path):
+    html = "<html><body><p>Keep me</p><p>Keep me</p></body></html>"
+    translator = FakeTranslator()
+    glossary = Glossary(
+        [
+            GlossaryEntry("Mantenha-me", GLOSSARY_RULE_PRESERVE, required=True),
+        ]
+    )
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        _output, stats = translate_html(html, translator, cache, "en", "pt", glossary=glossary)
+
+    assert stats.glossary_usage.applied_terms == {"Mantenha-me": 2}
+    assert stats.glossary_usage.required_terms_present == {"Mantenha-me": 2}
 
 
 def test_translate_text_protects_special_terms_before_translating(tmp_path):

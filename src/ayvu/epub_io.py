@@ -11,7 +11,7 @@ from ebooklib import epub
 
 from .cache import TranslationCache
 from .domain import TranslationOptions
-from .glossary import Glossary
+from .glossary import Glossary, GlossaryUsage
 from .html_translate import HtmlTranslationStats, extract_visible_text, translate_html
 from .translator import Translator
 
@@ -64,6 +64,8 @@ class TranslationReport:
     texts_from_cache: int = 0
     texts_skipped: int = 0
     errors: list[str] = field(default_factory=list)
+    glossary_terms_configured: int = 0
+    glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
     output_path: Path | None = None
     input_path: Path | None = None
     detected_language: str | None = None
@@ -77,6 +79,7 @@ class TranslationReport:
         self.texts_from_cache += stats.from_cache
         self.texts_skipped += stats.skipped
         self.errors.extend(stats.errors)
+        self.glossary_usage.merge(stats.glossary_usage)
         self.chapters_processed += 1
 
 
@@ -148,6 +151,7 @@ def translate_epub(
         input_path=source_path,
         detected_language=_first_metadata(book, "DC", "language"),
         target_language=options.target,
+        glossary_terms_configured=len(glossary.entries) if glossary else 0,
     )
     opf_base_path = _get_opf_base_path(source_path)
     replacements = EpubReplacements()
@@ -192,6 +196,8 @@ def translate_epub(
                     raise
 
     if not options.dry_run:
+        if glossary:
+            report.glossary_usage.finalize_required_terms(glossary)
         destination_path.parent.mkdir(parents=True, exist_ok=True)
         _copy_epub_with_replacements(source_path, destination_path, replacements)
 
