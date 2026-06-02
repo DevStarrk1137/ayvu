@@ -9,18 +9,34 @@ lancadas e secoes versionadas quando uma release for publicada.
 
 ### Adicionado
 
-- Fluxo guiado inicial ao executar `uv run ayvu`.
-- Modo comum e modo desenvolvedor via `--mode`.
+- Modo comum guiado ao executar `uv run ayvu`.
+- Modo desenvolvedor direto e opcao global `--mode`.
 - Preview traduzido com `uv run ayvu --preview livro.epub`.
 - Comando `languages` para listar idiomas retornados pelo LibreTranslate.
-- Formato inicial de configuracao em JSON para preferencias locais do Ayvu.
-- Preflight antes da traducao real, verificando EPUB, cache, glossario,
-  idiomas e tradutor.
-- Estado local de retomada em `~/Documentos/Livros/Processando`.
+- Selecao guiada de idioma de destino no modo comum, usando o idioma padrao
+  salvo ou a lista retornada pelo LibreTranslate.
+- Configuracao local em JSON com idioma padrao, pasta base dos livros, nomes
+  das pastas das funcionalidades e app leitor de EPUB.
+- Fluxo de primeiro uso para escolher idioma padrao, pasta base e nomes de
+  pastas antes de salvar a configuracao.
+- Menu `Settings` para alterar idioma padrao, pasta base, nomes de pastas e app
+  leitor.
+- Biblioteca inicial para listar EPUBs originais e traduzidos e abrir o arquivo
+  escolhido no leitor configurado ou detectado pelo sistema.
+- Deteccao automatica do idioma de origem pelo metadado do EPUB quando
+  `--source` nao e informado.
+- Plano de traducao exibindo origem e destino antes de iniciar.
+- Validacao de rota de traducao pelo LibreTranslate, com suporte a rota
+  intermediaria via ingles quando nao houver rota direta.
+- Preflight antes da traducao real, verificando EPUB, cache, glossario, idiomas,
+  rota de traducao e tradutor.
+- Estado local de retomada em `~/Documentos/Livros/Processando` ou na pasta de
+  processamento configurada.
+- Oferta de retomada no modo comum quando uma traducao em andamento e detectada.
 - Relatorio Markdown opcional no modo comum.
+- Validacao do EPUB gerado com barra de progresso, avisos de capitulos vazios,
+  links internos quebrados e imagens referenciadas ausentes.
 - Tutorial para modo comum, fluxo intermediario e modo desenvolvedor.
-- Escolha de outro nome no modo comum quando o EPUB de saida ja existe.
-- Tratamento limpo de interrupcao com `Ctrl+C`.
 - Testes com EPUB minimo gerado por codigo.
 - GitHub Actions para rodar `uv run pytest`.
 - Documento de fluxo de issues, branches, pull requests e releases.
@@ -29,9 +45,31 @@ lancadas e secoes versionadas quando uma release for publicada.
 
 ### Atualizado
 
-- README com recursos atuais, retomada pelo modo comum e correcao de texto
-  duplicado.
-- Relatorio tecnico alinhado ao estado atual do codigo, testes, CI e roadmap.
+- Saida padrao da traducao no modo comum agora e confirmada antes de iniciar.
+- Modo comum permite sobrescrever, escolher outro nome ou cancelar quando o EPUB
+  de saida ja existe.
+- Erros esperados mostram mensagens mais curtas no modo comum e detalhes
+  tecnicos no modo desenvolvedor.
+- Avisos da validacao final entram no relatorio do terminal e no relatorio
+  Markdown.
+- README e relatorio tecnico foram atualizados para refletir modos de uso,
+  retomada, configuracao, biblioteca, validacao, CI e roadmap.
+
+### Corrigido
+
+- Interrupcao com `Ctrl+C` mostra progresso parcial e orienta reutilizar o
+  cache.
+- EPUB invalido em `inspect` e `extract` falha sem traceback.
+- Texto duplicado no README foi removido.
+
+### Interno
+
+- Progresso de traducao foi extraido para `src/ayvu/cli_progress.py`.
+- Responsabilidades do backend LibreTranslate foram separadas em classes e
+  parsers menores.
+- Erros estruturais de EPUB foram separados do relatorio de traducao.
+- Formato de configuracao, estado de retomada e validacao final ganharam testes
+  dedicados.
 
 ## 0.0.1 - Inicial
 

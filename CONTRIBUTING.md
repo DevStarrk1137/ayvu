@@ -23,7 +23,14 @@ Resumo:
 4. Rode a validacao adequada.
 5. Abra um pull request para merge na `main`.
 6. Registre a validacao executada no pull request.
-7. Relacione o PR com a issue usando `Refs #N` ou `Closes #N`.
+7. Atualize `CHANGELOG.md` quando o PR entregar uma mudanca real para usuarios
+   ou manutencao.
+8. Relacione o PR com a issue usando `Refs #N` ou `Closes #N`.
+
+Artefatos criados no GitHub devem ser escritos em ingles: titulo e corpo de
+issues, mensagens de commit, titulo e corpo de pull requests, comentarios de
+review e notas de release. A documentacao do projeto pode continuar em
+portugues enquanto esse for o idioma usado nos arquivos existentes.
 
 Use nomes de branch com prefixo e descricao curta em kebab-case:
 
@@ -53,10 +60,16 @@ Comandos uteis:
 
 ```bash
 uv run ayvu --help
+uv run ayvu
 uv run ayvu inspect livro.epub
 uv run ayvu test-translator --url http://localhost:5000
 uv run ayvu languages --url http://localhost:5000
 uv run ayvu --preview livro.epub
+uv run ayvu translate livro.epub --target pt
+uv run ayvu translate livro.epub --source en --target pt --output livro-pt.epub
+uv run ayvu extract livro.epub --output livro-extraido/
+uv run ayvu --mode common translate livro.epub
+uv run ayvu --mode developer translate livro.epub --target pt
 ```
 
 ## Regras de Contribuicao
@@ -69,20 +82,50 @@ uv run ayvu --preview livro.epub
 - Use `tmp_path` para arquivos temporarios em testes.
 - Nao versione EPUBs, PDFs, caches SQLite, glossarios privados ou arquivos de
   uso pessoal.
-- Atualize `README.md` ou `docs/` quando mudar comportamento de usuario,
-  comandos, flags, cache, glossario ou formato de saida.
+- Atualize `README.md`, `docs/tutorial-modo-comum-e-dev.md` ou
+  `docs/relatorio-tecnico.md` quando mudar comportamento de usuario, comandos,
+  flags, cache, glossario, retomada, validacao, relatorios, configuracao ou
+  formato de saida.
+- Atualize `CHANGELOG.md` no mesmo PR quando a mudanca entregar comportamento,
+  correcao ou manutencao relevante. Nao atualize o changelog apenas por abrir
+  uma issue.
 - Mantenha mudancas de documentacao e codigo separadas quando isso facilitar
   revisao.
 
 ## Pull Requests
 
-Um PR deve explicar:
+O PR deve mirar a `main` e deve ser aberto como draft quando ainda houver
+decisao, revisao ou validacao pendente. O titulo e a descricao devem ser em
+ingles, descritivos e sem prefixos artificiais como `[codex]` ou `[ai]`.
 
-- objetivo;
-- o que mudou;
-- o que ficou fora do escopo;
-- validacao executada;
-- issue relacionada.
+A descricao deve usar esta estrutura:
+
+```md
+## Objective
+
+Short explanation of the PR goal.
+
+## What changed
+
+- Concrete change 1.
+- Concrete change 2.
+
+## Out of scope
+
+- Related work intentionally left out.
+
+## Validation
+
+- `uv run pytest`: X tests passing.
+- `git diff --check`: no errors.
+
+## Related issue
+
+Closes #N
+```
+
+Use `Refs #N` quando o PR apenas avancar parte de uma issue e `Closes #N`
+quando concluir a tarefa.
 
 Para mudancas de codigo, rode:
 
