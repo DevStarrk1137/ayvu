@@ -80,6 +80,48 @@ def test_translate_text_result_reports_cache_hit(tmp_path):
     assert translator.calls == []
 
 
+def test_translate_text_protects_special_terms_before_translating(tmp_path):
+    text = (
+        "Use `uv run ayvu --help`, open https://example.com/docs, edit "
+        "src/ayvu/html_translate.py, run git status, keep v1.2.0, call "
+        "translate_text(), and pass CacheKey."
+    )
+    protected_terms = [
+        "`uv run ayvu --help`",
+        "https://example.com/docs",
+        "src/ayvu/html_translate.py",
+        "git status",
+        "v1.2.0",
+        "translate_text()",
+        "CacheKey",
+    ]
+
+    translator = FakeTranslator()
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        result = translate_text(text, translator, cache, "en", "pt")
+
+    translated_input = translator.calls[0]
+    for term in protected_terms:
+        assert term not in translated_input
+        assert term in result.text
+    assert "__AYVU_PROTECTED_" in translated_input
+    assert "__AYVU_PROTECTED_" not in result.text
+
+
+def test_translate_text_caches_restored_protected_terms(tmp_path):
+    text = "Call translate_text() at https://example.com/docs."
+    translator = FakeTranslator()
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        first_result = translate_text(text, translator, cache, "en", "pt")
+        second_result = translate_text(text, translator, cache, "en", "pt")
+
+    assert first_result.text == "PT:Call translate_text() at https://example.com/docs."
+    assert second_result.text == first_result.text
+    assert second_result.from_cache
+    assert translator.calls == ["Call __AYVU_PROTECTED_0__ at __AYVU_PROTECTED_1__."]
+
+
 def test_translate_html_does_not_translate_doctype_or_comments(tmp_path):
     html = '<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html><html><body><!-- Keep me --><p>Keep me</p></body></html>'
     translator = FakeTranslator()
