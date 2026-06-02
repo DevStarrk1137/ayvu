@@ -1,14 +1,16 @@
 {
   "Game Loop": {
     "rule": "translate",
-    "translation": "loop de jogo"
+    "translation": "loop de jogo",
+    "required": true
   },
   "Design Pattern": {
     "rule": "translate",
     "translation": "padrão de projeto"
   },
   "Observer": {
-    "rule": "preserve"
+    "rule": "preserve",
+    "required": true
   },
   "Command": {
     "rule": "preserve"

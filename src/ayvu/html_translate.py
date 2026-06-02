@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup, Comment, Declaration, Doctype, NavigableString, P
 from .cache import CacheKey, TranslationCache
 from .chunking import split_text
 from .domain import LanguagePair
-from .glossary import Glossary, apply_glossary
+from .glossary import Glossary, GlossaryUsage, apply_glossary_with_usage
 from .translator import Translator
 
 
@@ -68,6 +68,7 @@ class HtmlTranslationStats:
     from_cache: int = 0
     skipped: int = 0
     errors: list[str] = field(default_factory=list)
+    glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,7 @@ class TextParts:
 class TextTranslationResult:
     text: str
     from_cache: bool = False
+    glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
 
 
 def extract_visible_text(html: str | bytes) -> list[str]:
@@ -133,6 +135,7 @@ def translate_html(
             )
             if not dry_run:
                 text_node.replace_with(NavigableString(result.text))
+            stats.glossary_usage.merge(result.glossary_usage)
             _record_success(stats, result.from_cache, dry_run, on_text_processed)
         except Exception as exc:
             stats.errors.append(str(exc))
@@ -163,7 +166,12 @@ def translate_text(
     cache_key = CacheKey(text=parts.core, language_pair=language_pair)
     cached = cache.get(cache_key)
     if cached is not None:
-        return TextTranslationResult(text=parts.restore(apply_glossary(cached, glossary)), from_cache=True)
+        application = apply_glossary_with_usage(cached, glossary)
+        return TextTranslationResult(
+            text=parts.restore(application.text),
+            from_cache=True,
+            glossary_usage=application.usage,
+        )
 
     if dry_run:
         return TextTranslationResult(text=text)
@@ -175,8 +183,8 @@ def translate_text(
     ]
     translated = protected.restore("".join(translated_chunks))
     cache.set(cache_key, translated)
-    translated = apply_glossary(translated, glossary)
-    return TextTranslationResult(text=parts.restore(translated))
+    application = apply_glossary_with_usage(translated, glossary)
+    return TextTranslationResult(text=parts.restore(application.text), glossary_usage=application.usage)
 
 
 def _visible_text_nodes(soup: BeautifulSoup) -> list[NavigableString]:

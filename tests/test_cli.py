@@ -15,6 +15,7 @@ from ayvu.cli import (
 )
 from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions, UserMode
 from ayvu.epub_io import TranslationReport
+from ayvu.glossary import GlossaryUsage
 from ayvu.library import LibraryOpenError
 from ayvu.preflight import PreflightError
 from ayvu.resume import COMPLETED_STATUS, ResumeStateStore, TranslationResumeState
@@ -1217,11 +1218,18 @@ def test_translate_command_continues_when_existing_output_is_confirmed(tmp_path)
 
 
 def test_render_markdown_report_includes_translation_context():
+    glossary_usage = GlossaryUsage(
+        applied_terms={"Game Loop": 2, "Observer": 1},
+        required_terms_missing=["Object Pool"],
+        forbidden_terms_found={"AntiPattern": 1},
+    )
     report = TranslationReport(
         chapters_processed=2,
         texts_translated=3,
         texts_from_cache=1,
         errors=["chapter.xhtml: failed\nwhile translating"],
+        glossary_terms_configured=4,
+        glossary_usage=glossary_usage,
         output_path=Path("books/book-pt.epub"),
         input_path=Path("books/book.epub"),
         detected_language="en",
@@ -1239,6 +1247,16 @@ def test_render_markdown_report_includes_translation_context():
     assert "- Texts translated: 3" in markdown
     assert "- Texts from cache: 1" in markdown
     assert "- Errors: 1" in markdown
+    assert "- Glossary terms configured: 4" in markdown
+    assert "- Glossary terms applied: 3" in markdown
+    assert "- Required glossary terms missing: 1" in markdown
+    assert "- Forbidden glossary terms found: 1" in markdown
+    assert "## Glossary usage" in markdown
+    assert "- Game Loop: 2" in markdown
+    assert "- Observer: 1" in markdown
+    assert "## Glossary warnings" in markdown
+    assert "- Required terms missing: Object Pool" in markdown
+    assert "- Forbidden terms found: AntiPattern (1)" in markdown
     assert "- chapter.xhtml: failed while translating" in markdown
 
 

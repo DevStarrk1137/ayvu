@@ -7,7 +7,9 @@ from ayvu.glossary import (
     Glossary,
     GlossaryEntry,
     GlossaryError,
+    GlossaryUsage,
     apply_glossary,
+    apply_glossary_with_usage,
     load_glossary,
 )
 
@@ -62,6 +64,68 @@ def test_load_glossary_supports_advanced_rules(tmp_path):
     assert glossary.forbidden_terms_in("Avoid foo in the output.") == ["Foo"]
 
 
+def test_load_glossary_supports_required_terms(tmp_path):
+    glossary_path = tmp_path / "glossary.json"
+    glossary_path.write_text(
+        """
+        {
+          "Game Loop": {
+            "rule": "translate",
+            "translation": "loop de jogo",
+            "required": true
+          },
+          "Observer": {
+            "rule": "preserve",
+            "required": true
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    glossary = load_glossary(glossary_path)
+
+    assert glossary.entries == (
+        GlossaryEntry("Game Loop", GLOSSARY_RULE_TRANSLATE, "loop de jogo", required=True),
+        GlossaryEntry("Observer", GLOSSARY_RULE_PRESERVE, required=True),
+    )
+
+
+def test_apply_glossary_with_usage_counts_terms_and_scans_output():
+    glossary = Glossary(
+        [
+            GlossaryEntry("Game Loop", GLOSSARY_RULE_TRANSLATE, "loop de jogo", required=True),
+            GlossaryEntry("Observer", GLOSSARY_RULE_PRESERVE, required=True),
+            GlossaryEntry("AntiPattern", GLOSSARY_RULE_FORBIDDEN),
+        ]
+    )
+
+    application = apply_glossary_with_usage(
+        "The game loop keeps observer and mentions AntiPattern.",
+        glossary,
+    )
+
+    assert application.text == "The loop de jogo keeps Observer and mentions AntiPattern."
+    assert application.usage.applied_terms == {"Game Loop": 1, "Observer": 1}
+    assert application.usage.required_terms_present == {"Game Loop": 1, "Observer": 1}
+    assert application.usage.forbidden_terms_found == {"AntiPattern": 1}
+
+
+def test_glossary_usage_reports_missing_required_terms():
+    glossary = Glossary(
+        [
+            GlossaryEntry("Game Loop", GLOSSARY_RULE_TRANSLATE, "loop de jogo", required=True),
+            GlossaryEntry("Observer", GLOSSARY_RULE_PRESERVE, required=True),
+        ]
+    )
+    usage = GlossaryUsage()
+    usage.merge(glossary.scan_output("A loop de jogo is present."))
+
+    usage.finalize_required_terms(glossary)
+
+    assert usage.required_terms_missing == ["Observer"]
+
+
 def test_apply_glossary_preserve_rule_keeps_configured_term():
     glossary = Glossary(
         [
@@ -103,6 +167,28 @@ def test_load_glossary_rejects_unsupported_fields(tmp_path):
     glossary_path.write_text('{"Observer": {"rule": "preserve", "translation": "Observador"}}', encoding="utf-8")
 
     with pytest.raises(GlossaryError, match="unsupported fields: translation"):
+        load_glossary(glossary_path)
+
+
+def test_load_glossary_rejects_non_boolean_required(tmp_path):
+    glossary_path = tmp_path / "glossary.json"
+    glossary_path.write_text(
+        '{"Observer": {"rule": "preserve", "required": "yes"}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(GlossaryError, match="field 'required' must be a boolean"):
+        load_glossary(glossary_path)
+
+
+def test_load_glossary_rejects_required_for_forbidden_terms(tmp_path):
+    glossary_path = tmp_path / "glossary.json"
+    glossary_path.write_text(
+        '{"AntiPattern": {"rule": "forbidden", "required": true}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(GlossaryError, match="unsupported fields: required"):
         load_glossary(glossary_path)
 
 

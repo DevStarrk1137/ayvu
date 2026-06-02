@@ -361,9 +361,14 @@ O glossário é aplicado depois da tradução e também sobre textos recuperados
 O formato simples de glossário (`"Termo": "tradução"`) continua sendo aceito e
 equivale à regra `translate`. O formato avançado aceita objetos por termo com
 `rule: "translate"` e `translation`, `rule: "preserve"` ou
-`rule: "forbidden"`. As regras `translate` e `preserve` alteram o texto final; a
-regra `forbidden` fica disponível para detecção de termos proibidos e para
-relatórios futuros.
+`rule: "forbidden"`. As regras `translate` e `preserve` alteram o texto final e
+podem usar `required: true` para exigir que o termo esperado apareça na saída. A
+regra `forbidden` detecta termos que não devem aparecer no texto final.
+
+O relatório de tradução acumula estatísticas de glossário por texto, capítulo e
+EPUB. Ele contabiliza aplicações de `translate` e `preserve`, inclusive em textos
+vindos do cache, e avisa termos obrigatórios ausentes ou termos proibidos
+encontrados na saída.
 
 Antes de enviar texto ao tradutor, `src/ayvu/html_translate.py` protege termos especiais com placeholders internos e os restaura depois da chamada HTTP. O escopo protegido inclui URLs, caminhos de arquivo, comandos de terminal, versões como `v1.2.0`, placeholders, código inline e identificadores técnicos simples. A tradução restaurada é gravada no cache antes da aplicação do glossário.
 
@@ -416,10 +421,12 @@ Ao final da tradução, o Ayvu mostra um relatório no terminal com:
 - textos pulados no dry-run;
 - erros;
 - avisos de validação (capítulo vazio, link interno quebrado, imagem ausente).
+- quando houver glossário, termos configurados, aplicações, obrigatórios
+  ausentes e termos proibidos encontrados.
 
 A validação roda antes do relatório final, então os avisos aparecem na tabela do terminal e, no modo comum, também no relatório Markdown. Qualquer aviso faz a execução terminar com código 1.
 
-No modo comum, o Ayvu também oferece salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`, sem sobrescrever relatórios anteriores.
+No modo comum, o Ayvu também oferece salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`, sem sobrescrever relatórios anteriores. O relatório Markdown repete o resumo de glossário e inclui seções com termos aplicados e avisos quando existirem.
 
 ## 16. Bug crítico: EPUB com tela branca
 

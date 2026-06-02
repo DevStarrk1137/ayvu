@@ -18,6 +18,7 @@ from ayvu.epub_io import (
     normalize_language_code,
     translate_epub,
 )
+from ayvu.glossary import GLOSSARY_RULE_FORBIDDEN, GLOSSARY_RULE_PRESERVE, Glossary, GlossaryEntry
 
 
 class FakeBook:
@@ -224,3 +225,32 @@ def test_translate_epub_limits_documents_for_preview(minimal_epub_path: Path, tm
     assert "PT:Hello reader. Visit" in chapter_one
     assert "PT:Goodbye reader." not in chapter_two
     assert "Goodbye reader." in chapter_two
+
+
+def test_translate_epub_reports_glossary_usage(minimal_epub_path: Path, tmp_path: Path):
+    output_path = tmp_path / "minimal-pt.epub"
+    translator = PrefixTranslator()
+    options = TranslationOptions(language_pair=LanguagePair(source="en", target="pt"))
+    glossary = Glossary(
+        [
+            GlossaryEntry("PT:Hello reader", GLOSSARY_RULE_PRESERVE, required=True),
+            GlossaryEntry("Missing Term", GLOSSARY_RULE_PRESERVE, required=True),
+            GlossaryEntry("PT:Chapter Two", GLOSSARY_RULE_FORBIDDEN),
+        ]
+    )
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        report = translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=translator,
+            cache=cache,
+            options=options,
+            glossary=glossary,
+        )
+
+    assert report.glossary_terms_configured == 3
+    assert report.glossary_usage.applied_terms["PT:Hello reader"] == 1
+    assert report.glossary_usage.required_terms_present["PT:Hello reader"] == 1
+    assert report.glossary_usage.required_terms_missing == ["Missing Term"]
+    assert report.glossary_usage.forbidden_terms_found["PT:Chapter Two"] >= 1

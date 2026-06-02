@@ -44,6 +44,8 @@ lancadas e secoes versionadas quando uma release for publicada.
   `CONTRIBUTING.md`.
 - Glossario avancado com regras `translate`, `preserve` e `forbidden`,
   mantendo compatibilidade com o formato simples de pares de termos.
+- Relatorio de uso do glossario com contagem de termos aplicados, termos
+  obrigatorios ausentes e termos proibidos encontrados na saida.
 
 ### Atualizado
 

@@ -578,13 +578,42 @@ def _print_report(
     table.add_row("Texts from cache", str(report.texts_from_cache))
     table.add_row("Errors", str(len(report.errors)))
     table.add_row("Validation warnings", str(len(validation_warnings)))
+    if _has_glossary_summary(report):
+        table.add_row("Glossary terms configured", str(report.glossary_terms_configured))
+        table.add_row("Glossary terms applied", str(report.glossary_usage.total_applied))
+        table.add_row(
+            "Required glossary terms missing",
+            str(len(report.glossary_usage.required_terms_missing)),
+        )
+        table.add_row(
+            "Forbidden glossary terms found",
+            str(report.glossary_usage.total_forbidden_found),
+        )
     console.print(table)
 
     for error in report.errors:
         console.print(f"[yellow]Error:[/yellow] {error}")
 
+    _print_glossary_warnings(report)
+
     if validation_warnings:
         _print_validation_warnings(validation_warnings)
+
+
+def _has_glossary_summary(report: TranslationReport) -> bool:
+    return report.glossary_terms_configured > 0 or report.glossary_usage.has_activity
+
+
+def _print_glossary_warnings(report: TranslationReport) -> None:
+    usage = report.glossary_usage
+    if not usage.required_terms_missing and not usage.forbidden_terms_found:
+        return
+
+    console.print("[yellow]Glossary warnings:[/yellow]")
+    if usage.required_terms_missing:
+        console.print(f"  - Required terms missing: {_format_terms(usage.required_terms_missing)}")
+    if usage.forbidden_terms_found:
+        console.print(f"  - Forbidden terms found: {_format_counted_terms(usage.forbidden_terms_found)}")
 
 
 def _print_interrupted_translation(
@@ -1287,10 +1316,37 @@ def _render_markdown_report(
         f"- Errors: {len(report.errors)}",
         f"- Validation warnings: {len(validation_warnings)}",
     ]
+    if _has_glossary_summary(report):
+        lines.extend(
+            [
+                f"- Glossary terms configured: {report.glossary_terms_configured}",
+                f"- Glossary terms applied: {report.glossary_usage.total_applied}",
+                f"- Required glossary terms missing: {len(report.glossary_usage.required_terms_missing)}",
+                f"- Forbidden glossary terms found: {report.glossary_usage.total_forbidden_found}",
+            ]
+        )
 
     if report.errors:
         lines.extend(["", "## Errors"])
         lines.extend(f"- {_single_line(error)}" for error in report.errors)
+
+    if report.glossary_usage.applied_terms:
+        lines.extend(["", "## Glossary usage"])
+        lines.extend(
+            f"- {_single_line(term)}: {count}"
+            for term, count in sorted(report.glossary_usage.applied_terms.items())
+        )
+
+    if report.glossary_usage.required_terms_missing or report.glossary_usage.forbidden_terms_found:
+        lines.extend(["", "## Glossary warnings"])
+        if report.glossary_usage.required_terms_missing:
+            lines.append(
+                f"- Required terms missing: {_format_terms(report.glossary_usage.required_terms_missing)}"
+            )
+        if report.glossary_usage.forbidden_terms_found:
+            lines.append(
+                f"- Forbidden terms found: {_format_counted_terms(report.glossary_usage.forbidden_terms_found)}"
+            )
 
     if validation_warnings:
         lines.extend(["", "## Validation warnings"])
@@ -1391,6 +1447,16 @@ def _prompt_output_path(default_path: Path) -> Path:
 
 def _single_line(value: str) -> str:
     return " ".join(value.split())
+
+
+def _format_terms(terms: list[str]) -> str:
+    return ", ".join(_single_line(term) for term in terms) if terms else "-"
+
+
+def _format_counted_terms(counts: dict[str, int]) -> str:
+    if not counts:
+        return "-"
+    return ", ".join(f"{_single_line(term)} ({count})" for term, count in sorted(counts.items()))
 
 
 def _resolve_existing_output_conflict(output_plan: OutputPlan, overwrite: bool, mode: UserMode) -> OutputPlan:
