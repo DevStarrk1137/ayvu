@@ -42,6 +42,8 @@ lancadas e secoes versionadas quando uma release for publicada.
 - Documento de fluxo de issues, branches, pull requests e releases.
 - Arquivos iniciais de manutencao do projeto: `LICENSE`, `CHANGELOG.md` e
   `CONTRIBUTING.md`.
+- Glossario avancado com regras `translate`, `preserve` e `forbidden`,
+  mantendo compatibilidade com o formato simples de pares de termos.
 
 ### Atualizado
 
@@ -54,6 +56,7 @@ lancadas e secoes versionadas quando uma release for publicada.
   Markdown.
 - README e relatorio tecnico foram atualizados para refletir modos de uso,
   retomada, configuracao, biblioteca, validacao, CI e roadmap.
+- `glossary.example.json` agora demonstra o formato avancado de glossario.
 
 ### Corrigido
 

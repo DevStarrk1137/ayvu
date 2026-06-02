@@ -218,17 +218,33 @@ uv run ayvu extract livro.epub \
 
 ## Glossário
 
-O glossário é um arquivo JSON simples com pares de termos:
+O glossário aceita o formato simples de pares de termos, mantido por compatibilidade:
 
 ```json
 {
   "Game Loop": "loop de jogo",
-  "Design Pattern": "padrão de projeto",
-  "Observer": "Observer",
-  "Command": "Command",
-  "State": "State"
+  "Observer": "Observer"
 }
 ```
+
+Também aceita regras explícitas por termo:
+
+```json
+{
+  "Game Loop": {
+    "rule": "translate",
+    "translation": "loop de jogo"
+  },
+  "Observer": {
+    "rule": "preserve"
+  },
+  "AntiPattern": {
+    "rule": "forbidden"
+  }
+}
+```
+
+Use `translate` para definir uma tradução preferida e `preserve` para manter um termo padronizado no texto final. A regra `forbidden` marca termos que não devem aparecer na saída e já é carregada e validada pelo glossário; relatórios de ocorrências ficam em uma etapa separada.
 
 Use `glossary.example.json` como base. O arquivo `glossary.json` local é ignorado pelo Git para evitar versionar preferências pessoais ou conteúdo privado.
 

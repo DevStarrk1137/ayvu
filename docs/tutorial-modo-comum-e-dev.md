@@ -110,13 +110,31 @@ Crie um glossário a partir do exemplo versionado:
 cp glossary.example.json glossary.json
 ```
 
-Edite `glossary.json` com os termos que deseja padronizar. Exemplo:
+Edite `glossary.json` com os termos que deseja padronizar. O formato simples
+continua aceito:
 
 ```json
 {
   "Game Loop": "loop de jogo",
   "Design Pattern": "padrão de projeto",
   "Observer": "Observer"
+}
+```
+
+Para regras explícitas, use `translate`, `preserve` ou `forbidden` por termo:
+
+```json
+{
+  "Game Loop": {
+    "rule": "translate",
+    "translation": "loop de jogo"
+  },
+  "Observer": {
+    "rule": "preserve"
+  },
+  "AntiPattern": {
+    "rule": "forbidden"
+  }
 }
 ```
 
@@ -132,6 +150,8 @@ uv run ayvu translate livro.epub \
 ```
 
 O glossário é aplicado depois da tradução e também sobre textos vindos do cache.
+A regra `forbidden` é carregada e validada pelo glossário, mas o relatório de
+ocorrências fica para uma etapa separada.
 
 ### Usar cache de forma consistente
 
