@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from urllib.parse import unquote
 from zipfile import ZIP_STORED, ZipFile
 import xml.etree.ElementTree as ET
 
@@ -12,13 +13,24 @@ from ebooklib import epub
 from .cache import TranslationCache
 from .domain import TranslationOptions
 from .glossary import Glossary, GlossaryUsage
-from .html_translate import HtmlTranslationStats, extract_visible_text, translate_html
+from .html_translate import (
+    HtmlTranslationStats,
+    TextTranslationResult,
+    extract_visible_text,
+    translate_html,
+    translate_text,
+)
 from .translator import Translator
 
 
 ChapterStartCallback = Callable[[int, int, str], None]
 ChapterDoneCallback = Callable[[int, int, str, HtmlTranslationStats], None]
 TextProgressCallback = Callable[[str], None]
+OPF_NAMESPACE = "http://www.idpf.org/2007/opf"
+DC_NAMESPACE = "http://purl.org/dc/elements/1.1/"
+
+ET.register_namespace("", OPF_NAMESPACE)
+ET.register_namespace("dc", DC_NAMESPACE)
 
 
 @dataclass
@@ -81,6 +93,13 @@ class TranslationReport:
         self.errors.extend(stats.errors)
         self.glossary_usage.merge(stats.glossary_usage)
         self.chapters_processed += 1
+
+    def record_text(self, result: TextTranslationResult) -> None:
+        if result.from_cache:
+            self.texts_from_cache += 1
+        else:
+            self.texts_translated += 1
+        self.glossary_usage.merge(result.glossary_usage)
 
 
 @dataclass
@@ -153,14 +172,41 @@ def translate_epub(
         target_language=options.target,
         glossary_terms_configured=len(glossary.entries) if glossary else 0,
     )
-    opf_base_path = _get_opf_base_path(source_path)
+    opf_archive_path = _get_opf_archive_path(source_path)
+    opf_base_path = _opf_base_path(opf_archive_path)
     replacements = EpubReplacements()
-
-    documents = _limited_documents(_document_entries(book, opf_base_path), options.max_documents)
-    total_documents = len(documents)
 
     with ZipFile(source_path, "r") as source_epub:
         archive_names = set(source_epub.namelist())
+        navigation_documents = _navigation_document_entries(source_epub, opf_archive_path, opf_base_path)
+        documents = _limited_documents(
+            _documents_for_translation(
+                _document_entries(book, opf_base_path),
+                navigation_documents,
+                translate_metadata=options.translate_metadata,
+            ),
+            options.max_documents,
+        )
+        total_documents = len(documents)
+
+        if options.translate_metadata and opf_archive_path and opf_archive_path in archive_names:
+            try:
+                translated_opf = _translate_opf_title(
+                    source_epub.read(opf_archive_path),
+                    translator=translator,
+                    cache=cache,
+                    options=options,
+                    glossary=glossary,
+                    report=report,
+                    on_text_processed=on_text_processed,
+                )
+                if translated_opf is not None and not options.dry_run:
+                    replacements.add(opf_archive_path, translated_opf)
+            except Exception as exc:
+                report.record_error(f"metadata title: {exc}")
+                _notify_text_processed(on_text_processed, "error")
+                if options.fail_fast:
+                    raise
 
         for index, document in enumerate(documents, start=1):
             if document.archive_path not in archive_names:
@@ -227,6 +273,10 @@ def _clean_extracted_text(text: str) -> str:
 
 
 def _get_opf_base_path(epub_path: Path) -> PurePosixPath:
+    return _opf_base_path(_get_opf_archive_path(epub_path))
+
+
+def _get_opf_archive_path(epub_path: Path) -> str | None:
     with ZipFile(epub_path, "r") as source_epub:
         container_xml = source_epub.read("META-INF/container.xml")
 
@@ -236,10 +286,16 @@ def _get_opf_base_path(epub_path: Path) -> PurePosixPath:
     if rootfile is None:
         rootfile = root.find(".//rootfile")
     if rootfile is None:
-        return PurePosixPath(".")
+        return None
 
-    full_path = rootfile.attrib.get("full-path", "")
-    parent = PurePosixPath(full_path).parent
+    full_path = rootfile.attrib.get("full-path", "").strip()
+    return full_path or None
+
+
+def _opf_base_path(opf_archive_path: str | None) -> PurePosixPath:
+    if opf_archive_path is None:
+        return PurePosixPath(".")
+    parent = PurePosixPath(opf_archive_path).parent
     return parent if str(parent) != "." else PurePosixPath(".")
 
 
@@ -262,6 +318,129 @@ def _limited_documents(documents: list[EpubDocument], max_documents: int | None)
     if max_documents is None:
         return documents
     return documents[:max(0, max_documents)]
+
+
+def _documents_for_translation(
+    documents: list[EpubDocument],
+    navigation_documents: list[EpubDocument],
+    translate_metadata: bool,
+) -> list[EpubDocument]:
+    navigation_paths = {document.archive_path for document in navigation_documents}
+    if not translate_metadata:
+        return [document for document in documents if document.archive_path not in navigation_paths]
+
+    selected = list(documents)
+    selected_paths = {document.archive_path for document in selected}
+    for document in navigation_documents:
+        if document.archive_path not in selected_paths:
+            selected.append(document)
+            selected_paths.add(document.archive_path)
+    return selected
+
+
+def _navigation_document_entries(
+    source_epub: ZipFile,
+    opf_archive_path: str | None,
+    opf_base_path: PurePosixPath,
+) -> list[EpubDocument]:
+    if opf_archive_path is None or opf_archive_path not in source_epub.namelist():
+        return []
+
+    try:
+        root = ET.fromstring(source_epub.read(opf_archive_path))
+    except ET.ParseError:
+        return []
+
+    manifest = _first_child_by_local_name(root, "manifest")
+    if manifest is None:
+        return []
+
+    documents: list[EpubDocument] = []
+    for item in manifest:
+        if _local_name(item.tag) != "item":
+            continue
+        properties = item.attrib.get("properties", "")
+        if "nav" not in properties.split():
+            continue
+        href = item.attrib.get("href", "").strip()
+        if not href:
+            continue
+        archive_path = _document_zip_path(opf_base_path, _manifest_href_path(href))
+        documents.append(EpubDocument(name=href, archive_path=archive_path))
+    return documents
+
+
+def _manifest_href_path(href: str) -> str:
+    clean = href.split("#", 1)[0].split("?", 1)[0]
+    return PurePosixPath(unquote(clean)).as_posix()
+
+
+def _translate_opf_title(
+    opf_content: bytes,
+    translator: Translator,
+    cache: TranslationCache,
+    options: TranslationOptions,
+    glossary: Glossary | None,
+    report: TranslationReport,
+    on_text_processed: TextProgressCallback | None,
+) -> bytes | None:
+    root = ET.fromstring(opf_content)
+    title = _first_metadata_title(root)
+    if title is None or title.text is None or not title.text.strip():
+        return None
+
+    result = translate_text(
+        title.text,
+        translator=translator,
+        cache=cache,
+        source=options.source,
+        target=options.target,
+        glossary=glossary,
+        dry_run=options.dry_run,
+        chunk_limit=options.chunk_limit,
+    )
+    title.text = result.text
+    report.record_text(result)
+    _notify_text_processed(on_text_processed, _text_progress_status(result, options.dry_run))
+    return ET.tostring(root, encoding="utf-8", xml_declaration=_has_xml_declaration(opf_content))
+
+
+def _first_metadata_title(root: ET.Element) -> ET.Element | None:
+    metadata = _first_child_by_local_name(root, "metadata")
+    if metadata is None:
+        return None
+    for child in metadata:
+        if _local_name(child.tag) == "title":
+            return child
+    return None
+
+
+def _first_child_by_local_name(root: ET.Element, name: str) -> ET.Element | None:
+    for child in root.iter():
+        if _local_name(child.tag) == name:
+            return child
+    return None
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _has_xml_declaration(content: bytes) -> bool:
+    return content.lstrip().startswith(b"<?xml")
+
+
+def _text_progress_status(result: TextTranslationResult, dry_run: bool) -> str:
+    if result.from_cache:
+        return "cache"
+    if dry_run:
+        return "dry_run"
+    return "translated"
+
+
+def _notify_text_processed(callback: TextProgressCallback | None, status: str) -> None:
+    if callback:
+        callback(status)
 
 
 def _copy_epub_with_replacements(
