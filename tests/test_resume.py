@@ -28,6 +28,7 @@ def make_state(tmp_path: Path, stem: str = "book") -> TranslationResumeState:
             fail_fast=True,
             chunk_limit=1200,
             translate_metadata=True,
+            translate_alt_text=True,
         ),
         overwrite=True,
         timeout=9.5,
@@ -52,6 +53,7 @@ def test_resume_state_round_trip(tmp_path):
     assert loaded.overwrite
     assert loaded.chunk_limit == 1200
     assert loaded.translate_metadata
+    assert loaded.translate_alt_text
     assert loaded.timeout == 9.5
     assert loaded.retries == 3
 
@@ -102,6 +104,18 @@ def test_resume_state_load_defaults_missing_translate_metadata_to_false(tmp_path
     loaded = store.load(path)
 
     assert not loaded.translate_metadata
+
+
+def test_resume_state_load_defaults_missing_translate_alt_text_to_false(tmp_path):
+    path = tmp_path / "old.ayvu-state.json"
+    data = make_state(tmp_path).to_dict()
+    data.pop("translate_alt_text")
+    path.write_text(json.dumps(data), encoding="utf-8")
+    store = ResumeStateStore(tmp_path)
+
+    loaded = store.load(path)
+
+    assert not loaded.translate_alt_text
 
 
 def test_resume_state_scan_finds_running_and_invalid_states(tmp_path):

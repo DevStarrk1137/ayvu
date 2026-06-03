@@ -222,6 +222,11 @@ def translate(
         "--translate-metadata",
         help="Also translate the EPUB title metadata and navigation text.",
     ),
+    translate_alt_text: bool = typer.Option(
+        False,
+        "--translate-alt-text",
+        help="Also translate the alt text of images. Text inside images (OCR) is out of scope.",
+    ),
     chunk_limit: int = typer.Option(3000, "--chunk-limit", help="Maximum characters sent per request."),
 ) -> None:
     """Translate EPUB visible text while preserving EPUB structure."""
@@ -245,6 +250,7 @@ def translate(
         mode=mode,
         config=config,
         translate_metadata=translate_metadata,
+        translate_alt_text=translate_alt_text,
     )
 
 
@@ -338,6 +344,7 @@ def _run_translation(
     mode: UserMode,
     config: AyvuConfig | None = None,
     translate_metadata: bool = False,
+    translate_alt_text: bool = False,
 ) -> None:
     config = config or _load_existing_config_or_default()
     resolved_source, source_inferred = _resolve_source_language(source, epub_path, mode=mode)
@@ -349,6 +356,7 @@ def _run_translation(
         fail_fast=fail_fast,
         chunk_limit=chunk_limit,
         translate_metadata=translate_metadata,
+        translate_alt_text=translate_alt_text,
     )
     output_plan = OutputPlan.for_translation(
         epub_path,
@@ -600,6 +608,8 @@ def _print_report(
     table.add_row("Chapters processed", str(report.chapters_processed))
     table.add_row("Texts translated", str(report.texts_translated))
     table.add_row("Texts from cache", str(report.texts_from_cache))
+    if report.alt_texts_translated:
+        table.add_row("Alt texts translated", str(report.alt_texts_translated))
     table.add_row("Errors", str(len(report.errors)))
     table.add_row("Validation warnings", str(len(validation_warnings)))
     if _has_glossary_summary(report):
@@ -1461,6 +1471,7 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
             chunk_limit=state.chunk_limit,
             mode=mode,
             translate_metadata=state.translate_metadata,
+            translate_alt_text=state.translate_alt_text,
         )
     except typer.Exit:
         console.print(
@@ -1586,9 +1597,13 @@ def _render_markdown_report(
         f"- Chapters processed: {report.chapters_processed}",
         f"- Texts translated: {report.texts_translated}",
         f"- Texts from cache: {report.texts_from_cache}",
+    ]
+    if report.alt_texts_translated:
+        lines.append(f"- Alt texts translated: {report.alt_texts_translated}")
+    lines.extend([
         f"- Errors: {len(report.errors)}",
         f"- Validation warnings: {len(validation_warnings)}",
-    ]
+    ])
     if _has_glossary_summary(report):
         lines.extend(
             [

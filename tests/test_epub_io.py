@@ -237,6 +237,65 @@ def test_translate_epub_translates_metadata_and_navigation_when_enabled(
     assert 'PT:<a href="text/chapter1.xhtml">Chapter One</a>' in navigation
 
 
+def _read_chapter_one(epub_path: Path) -> str:
+    with ZipFile(epub_path) as output_epub:
+        chapter_name = next(
+            name for name in output_epub.namelist() if name.endswith("text/chapter1.xhtml")
+        )
+        return output_epub.read(chapter_name).decode("utf-8")
+
+
+def test_translate_epub_preserves_image_alt_by_default(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    output_path = tmp_path / "minimal-pt.epub"
+    translator = PrefixTranslator()
+    options = TranslationOptions(language_pair=LanguagePair(source="en", target="pt"))
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        report = translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=translator,
+            cache=cache,
+            options=options,
+        )
+
+    chapter = _read_chapter_one(output_path)
+    assert 'alt="Pixel"' in chapter
+    assert ("Pixel", "en", "pt") not in translator.calls
+    assert report.alt_texts_translated == 0
+
+
+def test_translate_epub_translates_image_alt_when_enabled(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    output_path = tmp_path / "minimal-pt.epub"
+    translator = PrefixTranslator()
+    options = TranslationOptions(
+        language_pair=LanguagePair(source="en", target="pt"),
+        translate_alt_text=True,
+    )
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        report = translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=translator,
+            cache=cache,
+            options=options,
+        )
+
+    chapter = _read_chapter_one(output_path)
+    # The alt text is translated while the image and its src are preserved.
+    assert 'alt="PT:Pixel"' in chapter
+    assert "../images/pixel.png" in chapter
+    assert ("Pixel", "en", "pt") in translator.calls
+    assert report.alt_texts_translated == 1
+
+
 def test_normalize_language_code_extracts_primary_subtag_from_bcp47():
     assert normalize_language_code("pt-BR") == "pt"
     assert normalize_language_code("en_US") == "en"

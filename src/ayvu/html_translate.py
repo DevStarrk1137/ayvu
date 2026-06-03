@@ -85,6 +85,7 @@ class HtmlTranslationStats:
     translated: int = 0
     from_cache: int = 0
     skipped: int = 0
+    alt_translated: int = 0
     errors: list[str] = field(default_factory=list)
     glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
 
@@ -129,6 +130,7 @@ def translate_html(
     chunk_limit: int = 3000,
     on_error: Callable[[Exception], None] | None = None,
     on_text_processed: TextProgressCallback | None = None,
+    translate_alt_text: bool = False,
 ) -> tuple[bytes, HtmlTranslationStats]:
     soup = BeautifulSoup(html, "lxml-xml")
     stats = HtmlTranslationStats()
@@ -162,6 +164,22 @@ def translate_html(
                 on_error(exc)
             if fail_fast:
                 raise
+
+    if translate_alt_text:
+        _translate_image_alt_text(
+            soup,
+            translator=translator,
+            cache=cache,
+            source=source,
+            target=target,
+            glossary=glossary,
+            dry_run=dry_run,
+            fail_fast=fail_fast,
+            chunk_limit=chunk_limit,
+            stats=stats,
+            on_error=on_error,
+            on_text_processed=on_text_processed,
+        )
 
     return soup.encode(formatter="minimal"), stats
 
@@ -203,6 +221,59 @@ def translate_text(
     cache.set(cache_key, translated)
     application = apply_glossary_with_usage(translated, glossary)
     return TextTranslationResult(text=parts.restore(application.text), glossary_usage=application.usage)
+
+
+def _translate_image_alt_text(
+    soup: BeautifulSoup,
+    translator: Translator,
+    cache: TranslationCache,
+    source: str,
+    target: str,
+    glossary: Glossary | None,
+    dry_run: bool,
+    fail_fast: bool,
+    chunk_limit: int,
+    stats: HtmlTranslationStats,
+    on_error: Callable[[Exception], None] | None,
+    on_text_processed: TextProgressCallback | None,
+) -> None:
+    """Translate the ``alt`` text of ``img`` elements as plain text.
+
+    Only the alternative description is translated; the image, its ``src`` and
+    every other attribute are preserved. Reading text rendered inside the image
+    (OCR) is intentionally out of scope.
+    """
+    for image in _image_elements(soup):
+        alt = image.get("alt")
+        if not isinstance(alt, str) or not alt.strip():
+            continue
+        try:
+            result = translate_text(
+                alt,
+                translator=translator,
+                cache=cache,
+                source=source,
+                target=target,
+                glossary=glossary,
+                dry_run=dry_run,
+                chunk_limit=chunk_limit,
+            )
+            if not dry_run:
+                image["alt"] = result.text
+            stats.glossary_usage.merge(result.glossary_usage)
+            stats.alt_translated += 1
+            _record_success(stats, result.from_cache, dry_run, on_text_processed)
+        except Exception as exc:
+            stats.errors.append(str(exc))
+            _notify_text_processed(on_text_processed, "error")
+            if on_error:
+                on_error(exc)
+            if fail_fast:
+                raise
+
+
+def _image_elements(soup: BeautifulSoup) -> list:
+    return [node for node in soup.find_all(True) if _tag_name(node) == "img"]
 
 
 def _visible_text_nodes(soup: BeautifulSoup) -> list[NavigableString]:

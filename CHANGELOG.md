@@ -50,6 +50,9 @@ lancadas e secoes versionadas quando uma release for publicada.
   validacao, salvamento local e selecao antes de traduzir.
 - Opcao `--translate-metadata` para traduzir o titulo do EPUB e a navegacao
   EPUB 3 de forma explicita e conservadora.
+- Opcao `--translate-alt-text` para traduzir o texto alternativo (`alt`) das
+  imagens, preservando a imagem e demais atributos e contando os textos no
+  relatorio. Leitura de texto dentro da imagem (OCR) fica fora do escopo.
 
 ### Atualizado
 

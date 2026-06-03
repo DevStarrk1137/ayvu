@@ -75,6 +75,7 @@ class TranslationReport:
     texts_translated: int = 0
     texts_from_cache: int = 0
     texts_skipped: int = 0
+    alt_texts_translated: int = 0
     errors: list[str] = field(default_factory=list)
     glossary_terms_configured: int = 0
     glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
@@ -90,6 +91,7 @@ class TranslationReport:
         self.texts_translated += stats.translated
         self.texts_from_cache += stats.from_cache
         self.texts_skipped += stats.skipped
+        self.alt_texts_translated += stats.alt_translated
         self.errors.extend(stats.errors)
         self.glossary_usage.merge(stats.glossary_usage)
         self.chapters_processed += 1
@@ -230,6 +232,7 @@ def translate_epub(
                     fail_fast=options.fail_fast,
                     chunk_limit=options.chunk_limit,
                     on_text_processed=on_text_processed,
+                    translate_alt_text=options.translate_alt_text,
                 )
                 if not options.dry_run:
                     replacements.add(document.archive_path, translated_content)
