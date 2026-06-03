@@ -352,3 +352,70 @@ def test_translate_html_protects_special_terms_inside_block(tmp_path):
     # Both the URL and the inline tag are hidden behind placeholders during translation.
     assert "https://example.com/docs" not in translator.calls[0]
     assert "<em>" not in translator.calls[0]
+
+
+def test_translate_html_preserves_image_alt_by_default(tmp_path):
+    html = '<html><body><p><img src="cover.png" alt="A red house" /></p></body></html>'
+    translator = FakeTranslator()
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        output, stats = translate_html(html, translator, cache, "en", "pt")
+
+    result = output.decode("utf-8")
+    assert 'alt="A red house"' in result
+    assert "A red house" not in translator.calls
+    assert stats.alt_translated == 0
+
+
+def test_translate_html_translates_image_alt_when_enabled(tmp_path):
+    html = '<html><body><p><img src="cover.png" alt="A red house" /></p></body></html>'
+    translator = FakeTranslator()
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        output, stats = translate_html(
+            html, translator, cache, "en", "pt", translate_alt_text=True
+        )
+
+    result = output.decode("utf-8")
+    # The alt text is translated while src and the image element are preserved.
+    assert 'alt="PT:A red house"' in result
+    assert 'src="cover.png"' in result
+    assert "A red house" in translator.calls
+    assert stats.alt_translated == 1
+    assert stats.translated == 1
+
+
+def test_translate_html_skips_empty_or_missing_image_alt(tmp_path):
+    html = (
+        '<html><body><p>'
+        '<img src="decor.png" alt="" />'
+        '<img src="logo.png" />'
+        "</p></body></html>"
+    )
+    translator = FakeTranslator()
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        output, stats = translate_html(
+            html, translator, cache, "en", "pt", translate_alt_text=True
+        )
+
+    result = output.decode("utf-8")
+    assert 'alt=""' in result
+    assert translator.calls == []
+    assert stats.alt_translated == 0
+
+
+def test_translate_html_uses_cache_for_image_alt(tmp_path):
+    html = '<html><body><p><img src="cover.png" alt="A red house" /></p></body></html>'
+    translator = FakeTranslator()
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        cache.set(
+            CacheKey(text="A red house", language_pair=LanguagePair(source="en", target="pt")),
+            "Uma casa vermelha",
+        )
+        output, stats = translate_html(
+            html, translator, cache, "en", "pt", translate_alt_text=True
+        )
+
+    result = output.decode("utf-8")
+    assert 'alt="Uma casa vermelha"' in result
+    assert translator.calls == []
+    assert stats.alt_translated == 1
+    assert stats.from_cache == 1

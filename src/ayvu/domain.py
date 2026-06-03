@@ -92,6 +92,7 @@ class TranslationOptions:
     chunk_limit: int = 3000
     max_documents: int | None = None
     translate_metadata: bool = False
+    translate_alt_text: bool = False
 
     @property
     def source(self) -> str:

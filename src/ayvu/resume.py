@@ -53,6 +53,7 @@ class TranslationResumeState:
     retries: int
     chunk_limit: int
     translate_metadata: bool
+    translate_alt_text: bool
     created_at: str
     updated_at: str
 
@@ -88,6 +89,7 @@ class TranslationResumeState:
             retries=retries,
             chunk_limit=options.chunk_limit,
             translate_metadata=options.translate_metadata,
+            translate_alt_text=options.translate_alt_text,
             created_at=now,
             updated_at=now,
         )
@@ -122,6 +124,7 @@ class TranslationResumeState:
             retries=_required_int(data, "retries"),
             chunk_limit=_required_int(data, "chunk_limit"),
             translate_metadata=_optional_bool(data, "translate_metadata", default=False),
+            translate_alt_text=_optional_bool(data, "translate_alt_text", default=False),
             created_at=_required_text(data, "created_at"),
             updated_at=_required_text(data, "updated_at"),
         )

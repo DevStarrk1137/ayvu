@@ -1666,6 +1666,20 @@ def test_translate_metadata_flag_reaches_translation_options(minimal_epub_path, 
     assert calls["options"].translate_metadata
 
 
+def test_translate_alt_text_flag_reaches_translation_options(minimal_epub_path, tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(
+        app,
+        ["--mode", "developer", "translate", str(minimal_epub_path), "--translate-alt-text"],
+    )
+
+    assert result.exit_code == 0
+    assert calls["options"].translate_alt_text
+
+
 def test_translate_warns_when_epub_language_metadata_is_missing(tmp_path, monkeypatch):
     epub_path = tmp_path / "no-lang.epub"
     book = epub.EpubBook()

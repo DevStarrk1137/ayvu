@@ -144,6 +144,21 @@ e metadados técnicos. Alterar o título ou o sumário pode afetar a forma como
 leitores e bibliotecas organizam o livro; confira o EPUB gerado antes de usar a
 tradução como cópia principal.
 
+Por padrão, o Ayvu preserva o texto alternativo (`alt`) das imagens. Para também
+traduzir essas descrições de acessibilidade, use:
+
+```bash
+uv run ayvu translate livro.epub \
+  --target pt \
+  --translate-alt-text
+```
+
+Essa opção traduz apenas o atributo `alt` das tags `<img>`, preservando a imagem,
+o `src` e os demais atributos. Imagens decorativas (`alt=""`) são ignoradas. O
+relatório passa a mostrar quantos textos alternativos foram traduzidos. Ler o
+texto que está dentro da imagem (OCR) está fora do escopo e fica para uma feature
+futura.
+
 Gerar um preview traduzido:
 
 ```bash

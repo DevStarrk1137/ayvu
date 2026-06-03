@@ -269,6 +269,21 @@ EPUB3 marcado como `properties="nav"`, mantendo identificadores, autores,
 editora e metadados técnicos. Use com cuidado: alguns leitores e bibliotecas
 usam o título e o sumário para organizar o livro.
 
+### Traduzir texto alternativo de imagens opcionalmente
+
+```bash
+uv run ayvu translate livro.epub \
+  --source en \
+  --target pt \
+  --translate-alt-text
+```
+
+Sem `--translate-alt-text`, o Ayvu preserva o atributo `alt` das imagens. Com a
+opção ativa, traduz apenas o `alt` das tags `<img>`, mantendo a imagem, o `src` e
+os demais atributos; imagens decorativas (`alt=""`) são ignoradas. O relatório
+mostra a quantidade de textos alternativos traduzidos. Ler o texto que está
+dentro da imagem (OCR) continua fora do escopo.
+
 ### Sobrescrever saída existente
 
 ```bash
