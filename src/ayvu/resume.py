@@ -52,6 +52,7 @@ class TranslationResumeState:
     timeout: float
     retries: int
     chunk_limit: int
+    translate_metadata: bool
     created_at: str
     updated_at: str
 
@@ -86,6 +87,7 @@ class TranslationResumeState:
             timeout=timeout,
             retries=retries,
             chunk_limit=options.chunk_limit,
+            translate_metadata=options.translate_metadata,
             created_at=now,
             updated_at=now,
         )
@@ -119,6 +121,7 @@ class TranslationResumeState:
             timeout=_required_number(data, "timeout"),
             retries=_required_int(data, "retries"),
             chunk_limit=_required_int(data, "chunk_limit"),
+            translate_metadata=_optional_bool(data, "translate_metadata", default=False),
             created_at=_required_text(data, "created_at"),
             updated_at=_required_text(data, "updated_at"),
         )
@@ -201,6 +204,15 @@ def _required_int(data: dict[str, object], key: str) -> int:
 
 def _required_bool(data: dict[str, object], key: str) -> bool:
     value = _required_value(data, key)
+    if not isinstance(value, bool):
+        raise ResumeStateError(f"Resume state field {key} must be true or false.")
+    return value
+
+
+def _optional_bool(data: dict[str, object], key: str, default: bool) -> bool:
+    if key not in data:
+        return default
+    value = data[key]
     if not isinstance(value, bool):
         raise ResumeStateError(f"Resume state field {key} must be true or false.")
     return value

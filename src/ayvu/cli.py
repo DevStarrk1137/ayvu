@@ -217,6 +217,11 @@ def translate(
     overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing an existing output file."),
     timeout: float = typer.Option(30.0, "--timeout", help="Translator HTTP timeout in seconds."),
     retries: int = typer.Option(2, "--retries", help="Simple HTTP retry count."),
+    translate_metadata: bool = typer.Option(
+        False,
+        "--translate-metadata",
+        help="Also translate the EPUB title metadata and navigation text.",
+    ),
     chunk_limit: int = typer.Option(3000, "--chunk-limit", help="Maximum characters sent per request."),
 ) -> None:
     """Translate EPUB visible text while preserving EPUB structure."""
@@ -239,6 +244,7 @@ def translate(
         chunk_limit=chunk_limit,
         mode=mode,
         config=config,
+        translate_metadata=translate_metadata,
     )
 
 
@@ -331,6 +337,7 @@ def _run_translation(
     chunk_limit: int,
     mode: UserMode,
     config: AyvuConfig | None = None,
+    translate_metadata: bool = False,
 ) -> None:
     config = config or _load_existing_config_or_default()
     resolved_source, source_inferred = _resolve_source_language(source, epub_path, mode=mode)
@@ -341,6 +348,7 @@ def _run_translation(
         dry_run=dry_run,
         fail_fast=fail_fast,
         chunk_limit=chunk_limit,
+        translate_metadata=translate_metadata,
     )
     output_plan = OutputPlan.for_translation(
         epub_path,
@@ -1452,6 +1460,7 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
             retries=state.retries,
             chunk_limit=state.chunk_limit,
             mode=mode,
+            translate_metadata=state.translate_metadata,
         )
     except typer.Exit:
         console.print(

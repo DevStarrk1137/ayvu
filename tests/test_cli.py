@@ -358,6 +358,7 @@ def test_root_command_resumes_detected_translation_when_confirmed(tmp_path, monk
     assert options.source == state.source
     assert options.target == state.target
     assert options.chunk_limit == state.chunk_limit
+    assert options.translate_metadata == state.translate_metadata
     assert saved_state.status == COMPLETED_STATUS
 
 
@@ -1649,6 +1650,20 @@ def test_translate_explicit_source_overrides_epub_metadata(minimal_epub_path, tm
     assert result.exit_code == 0
     assert calls["options"].source == "fr"
     assert "inferido do EPUB" not in result.output
+
+
+def test_translate_metadata_flag_reaches_translation_options(minimal_epub_path, tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(
+        app,
+        ["--mode", "developer", "translate", str(minimal_epub_path), "--translate-metadata"],
+    )
+
+    assert result.exit_code == 0
+    assert calls["options"].translate_metadata
 
 
 def test_translate_warns_when_epub_language_metadata_is_missing(tmp_path, monkeypatch):

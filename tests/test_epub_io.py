@@ -12,6 +12,9 @@ from ayvu.epub_io import (
     TranslationReport,
     _document_entries,
     _document_zip_path,
+    _get_opf_archive_path,
+    _navigation_document_entries,
+    _opf_base_path,
     detect_epub_language,
     extract_markdown,
     inspect_epub,
@@ -50,6 +53,14 @@ class PrefixTranslator:
     def translate(self, text: str, source: str, target: str) -> str:
         self.calls.append((text, source, target))
         return f"PT:{text}"
+
+
+def _read_navigation_document(epub_path: Path) -> str:
+    opf_archive_path = _get_opf_archive_path(epub_path)
+    with ZipFile(epub_path) as source_epub:
+        documents = _navigation_document_entries(source_epub, opf_archive_path, _opf_base_path(opf_archive_path))
+        assert documents
+        return source_epub.read(documents[0].archive_path).decode("utf-8")
 
 
 def test_document_zip_path_for_root_opf():
@@ -160,7 +171,7 @@ def test_translate_epub_translates_minimal_generated_epub_without_mutating_input
     assert report.detected_language == "en"
     assert report.target_language == "pt"
     assert report.chapters_processed >= 2
-    assert report.texts_translated >= 5
+    assert report.texts_translated >= 4
     assert report.errors == []
     assert translator.calls
 
@@ -174,6 +185,56 @@ def test_translate_epub_translates_minimal_generated_epub_without_mutating_input
     # The paragraph is translated as one block, keeping the inline link and its text.
     assert '<a href="chapter2.xhtml#answer">chapter two</a>' in chapter
     assert "../images/pixel.png" in chapter
+
+
+def test_translate_epub_preserves_metadata_and_navigation_by_default(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    output_path = tmp_path / "minimal-pt.epub"
+    translator = PrefixTranslator()
+    options = TranslationOptions(language_pair=LanguagePair(source="en", target="pt"))
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=translator,
+            cache=cache,
+            options=options,
+        )
+
+    assert inspect_epub(output_path).title == "Minimal Test Book"
+    assert ("Minimal Test Book", "en", "pt") not in translator.calls
+    navigation = _read_navigation_document(output_path)
+    assert "Chapter One" in navigation
+    assert "PT:Chapter One" not in navigation
+
+
+def test_translate_epub_translates_metadata_and_navigation_when_enabled(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    output_path = tmp_path / "minimal-pt.epub"
+    translator = PrefixTranslator()
+    options = TranslationOptions(
+        language_pair=LanguagePair(source="en", target="pt"),
+        translate_metadata=True,
+    )
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=translator,
+            cache=cache,
+            options=options,
+        )
+
+    assert inspect_epub(output_path).title == "PT:Minimal Test Book"
+    assert ("Minimal Test Book", "en", "pt") in translator.calls
+    navigation = _read_navigation_document(output_path)
+    assert 'PT:<a href="text/chapter1.xhtml">Chapter One</a>' in navigation
 
 
 def test_normalize_language_code_extracts_primary_subtag_from_bcp47():

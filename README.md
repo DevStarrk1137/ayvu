@@ -129,6 +129,21 @@ plano da tradução (`From`/`To`) antes de começar e usa o idioma detectado com
 origem. Quando o metadado estiver ausente ou inválido, o Ayvu avisa e usa `en`
 como padrão; informe `--source` para escolher outro idioma de origem.
 
+Por padrão, o Ayvu preserva metadados do EPUB e o documento de navegação. Para
+traduzir também o título do livro no OPF e o texto do sumário EPUB3, use:
+
+```bash
+uv run ayvu translate livro.epub \
+  --target pt \
+  --translate-metadata
+```
+
+Essa opção é conservadora: traduz o primeiro `dc:title` e a navegação marcada no
+manifesto como `properties="nav"`, preservando identificadores, autores, editora
+e metadados técnicos. Alterar o título ou o sumário pode afetar a forma como
+leitores e bibliotecas organizam o livro; confira o EPUB gerado antes de usar a
+tradução como cópia principal.
+
 Gerar um preview traduzido:
 
 ```bash

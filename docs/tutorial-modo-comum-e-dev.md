@@ -254,6 +254,21 @@ uv run ayvu translate livro.epub \
   --cache .cache/traducoes.sqlite
 ```
 
+### Traduzir título e sumário opcionalmente
+
+```bash
+uv run ayvu translate livro.epub \
+  --source en \
+  --target pt \
+  --translate-metadata
+```
+
+Sem `--translate-metadata`, o Ayvu preserva o título do OPF e o documento de
+navegação. Com a opção ativa, traduz o primeiro `dc:title` e o texto do sumário
+EPUB3 marcado como `properties="nav"`, mantendo identificadores, autores,
+editora e metadados técnicos. Use com cuidado: alguns leitores e bibliotecas
+usam o título e o sumário para organizar o livro.
+
 ### Sobrescrever saída existente
 
 ```bash
