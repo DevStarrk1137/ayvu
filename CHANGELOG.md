@@ -72,6 +72,9 @@ lancadas e secoes versionadas quando uma release for publicada.
 - README e relatorio tecnico foram atualizados para refletir modos de uso,
   retomada, configuracao, biblioteca, validacao, CI e roadmap.
 - `glossary.example.json` agora demonstra o formato avancado de glossario.
+- Documentada a decisao de manter um glossario ativo por traducao ou perfil,
+  adiando empilhamento generico e preferindo uma futura evolucao por glossarios
+  com regra padrao de arquivo.
 
 ### Corrigido
 

@@ -373,6 +373,31 @@ EPUB. Ele contabiliza aplicações de `translate` e `preserve`, inclusive em tex
 vindos do cache, e avisa termos obrigatórios ausentes ou termos proibidos
 encontrados na saída.
 
+### Decisão sobre múltiplos glossários
+
+A decisão atual é manter um glossário ativo por tradução ou perfil e não aceitar
+empilhamento genérico de vários arquivos `--glossary` na mesma execução.
+
+Motivos:
+
+- dois arquivos podem definir regras incompatíveis para o mesmo termo;
+- a ordem de prioridade teria de virar contrato de usuário e de cache;
+- o relatório precisaria explicar qual arquivo aplicou, bloqueou ou sobrescreveu
+  cada termo;
+- o modo comum ficaria mais complexo para um caso ainda não validado por uso real.
+
+Quando o usuário precisar combinar termos gerais, técnicos e específicos de um
+livro, a solução atual é compor um único glossário avançado e associá-lo ao livro
+ou ao perfil de tradução.
+
+A alternativa futura preferida não é empilhamento arbitrário, mas glossários por
+papel. Um arquivo poderia declarar uma regra padrão no início, como `translate`,
+`preserve` ou `forbidden`, e todos os termos internos herdariam essa regra. Isso
+reduz repetição para glossários grandes e mantém uma separação natural entre
+traduções preferidas, termos preservados e termos proibidos. Antes de implementar,
+o Ayvu ainda precisa definir formato, precedência, detecção de conflito e impacto
+no relatório.
+
 Antes de enviar texto ao tradutor, `src/ayvu/html_translate.py` protege termos especiais com placeholders internos e os restaura depois da chamada HTTP. O escopo protegido inclui URLs, caminhos de arquivo, comandos de terminal, versões como `v1.2.0`, placeholders, código inline e identificadores técnicos simples. A tradução restaurada é gravada no cache antes da aplicação do glossário.
 
 Textos longos são divididos antes de serem enviados ao tradutor. A regra atual tenta dividir por:
@@ -511,7 +536,8 @@ uv run pytest
 
 Prioridades que ainda fazem sentido:
 
-1. Evoluir o glossário para regras explícitas de preservar, traduzir e proibir termos.
+1. Avaliar glossários por regra, com regra padrão no arquivo para `translate`,
+   `preserve` ou `forbidden`, sem empilhamento genérico.
 2. Melhorar validação pós-tradução, incluindo links, capítulos vazios, imagens ausentes e texto não traduzido.
 3. Criar configuração persistente para idioma padrão, pastas e preferências.
 4. Melhorar cache com inspeção, limpeza, exportação e escopo por backend/modelo/glossário.
