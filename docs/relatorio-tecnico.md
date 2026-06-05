@@ -80,6 +80,7 @@ ayvu/
 │       ├── html_translate.py
 │       ├── library.py
 │       ├── preflight.py
+│       ├── review_export.py
 │       ├── resume.py
 │       ├── translator.py
 │       └── validation.py
@@ -95,6 +96,7 @@ ayvu/
 │   ├── test_html_translate.py
 │   ├── test_library.py
 │   ├── test_preflight.py
+│   ├── test_review_export.py
 │   ├── test_resume.py
 │   ├── test_translator.py
 │   └── test_validation.py
@@ -181,6 +183,15 @@ uv run ayvu translate livro.epub \
   --cache .cache/traducoes.sqlite
 ```
 
+Exportar CSV para revisão externa durante a tradução:
+
+```bash
+uv run ayvu translate livro.epub \
+  --source en \
+  --target pt \
+  --review-output livro-review.csv
+```
+
 Gerar preview traduzido:
 
 ```bash
@@ -225,6 +236,8 @@ uv run ayvu --mode common translate livro.epub
 `src/ayvu/epub_io.py` cuida de leitura, inspeção, extração, tradução estrutural e escrita do EPUB final.
 
 `src/ayvu/html_translate.py` traduz HTML/XHTML por bloco (parágrafos, títulos e itens de lista), substituindo tags inline por placeholders neutros e restaurando-as depois, preservando tags e atributos e ignorando conteúdo que não deve ser traduzido.
+
+`src/ayvu/review_export.py` escreve o CSV opcional de revisão externa com segmentos originais/traduzidos, IDs e metadados de rastreio.
 
 `src/ayvu/library.py` varre as pastas de biblioteca configuradas, agrupa EPUB original e traduções por livro e resolve o comando usado para abrir EPUBs no app leitor.
 
@@ -443,6 +456,7 @@ Ao final da tradução, o Ayvu mostra um relatório no terminal com:
 - EPUB original;
 - idiomas;
 - saída gerada;
+- arquivo de revisão, quando `--review-output` for usado;
 - capítulos processados;
 - textos traduzidos;
 - textos reaproveitados do cache;
@@ -453,6 +467,8 @@ Ao final da tradução, o Ayvu mostra um relatório no terminal com:
   ausentes e termos proibidos encontrados.
 
 A validação roda antes do relatório final, então os avisos aparecem na tabela do terminal e, no modo comum, também no relatório Markdown. Qualquer aviso faz a execução terminar com código 1.
+
+Quando `--review-output` é informado, a CLI coleta os segmentos emitidos pelo fluxo normal de tradução e grava um CSV lado a lado. Cada linha inclui `segment_id`, caminho interno do documento no EPUB, índice de capítulo, idiomas, indicação de cache, texto original e texto traduzido. O CSV não é gerado em `--dry-run` e não sobrescreve arquivo existente sem `--overwrite`.
 
 No modo comum, o Ayvu também oferece salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`, sem sobrescrever relatórios anteriores. O relatório Markdown repete o resumo de glossário e inclui seções com termos aplicados e avisos quando existirem.
 

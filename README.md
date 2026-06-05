@@ -166,6 +166,21 @@ relatório passa a mostrar quantos textos alternativos foram traduzidos. Ler o
 texto que está dentro da imagem (OCR) está fora do escopo e fica para uma feature
 futura.
 
+Gerar um CSV opcional para revisão humana externa:
+
+```bash
+uv run ayvu translate livro.epub \
+  --target pt \
+  --review-output livro-review.csv
+```
+
+O arquivo de revisão só é criado quando `--review-output` é informado. Ele
+registra cada segmento traduzido com identificador de capítulo e segmento,
+caminho interno do documento no EPUB, idiomas, origem do cache e texto original
+e traduzido lado a lado. Se o CSV já existir, use `--overwrite` ou escolha outro
+caminho. A opção não funciona com `--dry-run`, porque o dry-run não gera texto
+traduzido revisável.
+
 Gerar um preview traduzido:
 
 ```bash
@@ -273,7 +288,7 @@ uv run ayvu translate livro.epub \
   --dry-run
 ```
 
-Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, capítulos processados, textos traduzidos, cache, erros e resumo do uso do glossário quando houver glossário configurado. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`.
+Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, arquivo de revisão quando solicitado, capítulos processados, textos traduzidos, cache, erros e resumo do uso do glossário quando houver glossário configurado. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`.
 
 Extrair texto visível para Markdown:
 

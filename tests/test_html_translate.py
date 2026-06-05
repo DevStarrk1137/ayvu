@@ -81,6 +81,53 @@ def test_translate_html_uses_cache(tmp_path):
     assert translator.calls == ["Keep me"]
 
 
+def test_translate_html_reports_review_segments_as_visible_text(tmp_path):
+    html = '<html><body><p>Hello <a href="chapter.xhtml">reader</a>.</p></body></html>'
+    segments = []
+    translator = FakeTranslator()
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        translate_html(
+            html,
+            translator,
+            cache,
+            "en",
+            "pt",
+            on_segment_translated=segments.append,
+        )
+
+    assert len(segments) == 1
+    assert segments[0].kind == "text"
+    assert segments[0].original == "Hello reader."
+    assert segments[0].translated == "PT:Hello reader."
+    assert not segments[0].from_cache
+
+
+def test_translate_html_reports_review_segments_from_cache(tmp_path):
+    segments = []
+    translator = FakeTranslator()
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        cache.set(
+            CacheKey(text="Keep me", language_pair=LanguagePair(source="en", target="pt")),
+            "Mantenha-me",
+        )
+        translate_html(
+            "<html><body><p>Keep me</p></body></html>",
+            translator,
+            cache,
+            "en",
+            "pt",
+            on_segment_translated=segments.append,
+        )
+
+    assert len(segments) == 1
+    assert segments[0].original == "Keep me"
+    assert segments[0].translated == "Mantenha-me"
+    assert segments[0].from_cache
+    assert translator.calls == []
+
+
 def test_translate_text_result_reports_cache_hit(tmp_path):
     translator = FakeTranslator()
     with TranslationCache(tmp_path / "cache.sqlite") as cache:
@@ -381,6 +428,28 @@ def test_translate_html_translates_image_alt_when_enabled(tmp_path):
     assert "A red house" in translator.calls
     assert stats.alt_translated == 1
     assert stats.translated == 1
+
+
+def test_translate_html_reports_review_segments_for_image_alt(tmp_path):
+    html = '<html><body><p><img src="cover.png" alt="A red house" /></p></body></html>'
+    segments = []
+    translator = FakeTranslator()
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        translate_html(
+            html,
+            translator,
+            cache,
+            "en",
+            "pt",
+            translate_alt_text=True,
+            on_segment_translated=segments.append,
+        )
+
+    assert len(segments) == 1
+    assert segments[0].kind == "alt"
+    assert segments[0].original == "A red house"
+    assert segments[0].translated == "PT:A red house"
 
 
 def test_translate_html_skips_empty_or_missing_image_alt(tmp_path):

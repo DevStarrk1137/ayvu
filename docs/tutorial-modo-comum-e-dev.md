@@ -90,6 +90,10 @@ Ao final, o Ayvu mostra um relatório no terminal com capítulos processados, te
 ~/Documentos/Livros/Relatorios
 ```
 
+Quando precisar revisar a tradução fora do EPUB, use o modo desenvolvedor com
+`--review-output` para salvar um CSV lado a lado. O modo comum não pede esse
+arquivo automaticamente.
+
 ### Retomar uma tradução interrompida
 
 Durante traduções reais, o Ayvu registra um estado local em:
@@ -323,6 +327,21 @@ opção ativa, traduz apenas o `alt` das tags `<img>`, mantendo a imagem, o `src
 os demais atributos; imagens decorativas (`alt=""`) são ignoradas. O relatório
 mostra a quantidade de textos alternativos traduzidos. Ler o texto que está
 dentro da imagem (OCR) continua fora do escopo.
+
+### Exportar CSV para revisão externa
+
+```bash
+uv run ayvu translate livro.epub \
+  --source en \
+  --target pt \
+  --review-output livro-review.csv
+```
+
+O CSV contém uma linha por segmento traduzido, com `segment_id`, índice e nome
+do capítulo, caminho interno do documento, idiomas, indicação de cache e textos
+original/traduzido lado a lado. O arquivo só é criado quando a opção é usada. Se
+o caminho já existir, passe `--overwrite` ou escolha outro arquivo. `--dry-run`
+não gera CSV de revisão porque não produz tradução revisável.
 
 ### Sobrescrever saída existente
 

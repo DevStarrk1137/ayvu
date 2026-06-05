@@ -14,18 +14,21 @@ from .cache import TranslationCache
 from .domain import TranslationOptions
 from .glossary import Glossary, GlossaryUsage
 from .html_translate import (
+    HtmlTranslatedSegment,
     HtmlTranslationStats,
     TextTranslationResult,
     extract_visible_text,
     translate_html,
     translate_text,
 )
+from .review_export import ReviewSegment
 from .translator import Translator
 
 
 ChapterStartCallback = Callable[[int, int, str], None]
 ChapterDoneCallback = Callable[[int, int, str, HtmlTranslationStats], None]
 TextProgressCallback = Callable[[str], None]
+MetadataReviewCallback = Callable[[str, TextTranslationResult], None]
 OPF_NAMESPACE = "http://www.idpf.org/2007/opf"
 DC_NAMESPACE = "http://purl.org/dc/elements/1.1/"
 
@@ -80,6 +83,7 @@ class TranslationReport:
     glossary_terms_configured: int = 0
     glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
     output_path: Path | None = None
+    review_output_path: Path | None = None
     input_path: Path | None = None
     detected_language: str | None = None
     target_language: str | None = None
@@ -163,6 +167,7 @@ def translate_epub(
     on_chapter_start: ChapterStartCallback | None = None,
     on_chapter_done: ChapterDoneCallback | None = None,
     on_text_processed: TextProgressCallback | None = None,
+    review_segments: list[ReviewSegment] | None = None,
 ) -> TranslationReport:
     source_path = Path(input_path)
     destination_path = Path(output_path)
@@ -201,6 +206,13 @@ def translate_epub(
                     glossary=glossary,
                     report=report,
                     on_text_processed=on_text_processed,
+                    on_review_text=_metadata_review_callback(
+                        review_segments,
+                        source_path=source_path,
+                        destination_path=destination_path,
+                        opf_archive_path=opf_archive_path,
+                        options=options,
+                    ),
                 )
                 if translated_opf is not None and not options.dry_run:
                     replacements.add(opf_archive_path, translated_opf)
@@ -221,6 +233,25 @@ def translate_epub(
                 on_chapter_start(index, total_documents, document.name)
 
             try:
+                document_segment_index = 0
+
+                def on_segment_translated(segment: HtmlTranslatedSegment) -> None:
+                    nonlocal document_segment_index
+                    if review_segments is None:
+                        return
+                    document_segment_index += 1
+                    review_segments.append(
+                        _review_segment_for_document(
+                            segment,
+                            source_path=source_path,
+                            destination_path=destination_path,
+                            document=document,
+                            chapter_index=index,
+                            segment_index=document_segment_index,
+                            options=options,
+                        )
+                    )
+
                 translated_content, stats = translate_html(
                     source_epub.read(document.archive_path),
                     translator=translator,
@@ -232,6 +263,7 @@ def translate_epub(
                     fail_fast=options.fail_fast,
                     chunk_limit=options.chunk_limit,
                     on_text_processed=on_text_processed,
+                    on_segment_translated=on_segment_translated if review_segments is not None else None,
                     translate_alt_text=options.translate_alt_text,
                 )
                 if not options.dry_run:
@@ -378,6 +410,68 @@ def _manifest_href_path(href: str) -> str:
     return PurePosixPath(unquote(clean)).as_posix()
 
 
+def _metadata_review_callback(
+    review_segments: list[ReviewSegment] | None,
+    source_path: Path,
+    destination_path: Path,
+    opf_archive_path: str,
+    options: TranslationOptions,
+) -> MetadataReviewCallback | None:
+    if review_segments is None:
+        return None
+
+    def append_metadata_segment(original: str, result: TextTranslationResult) -> None:
+        review_segments.append(
+            ReviewSegment(
+                segment_id="metadata-title",
+                source_epub=str(source_path),
+                output_epub=str(destination_path),
+                chapter_index=0,
+                chapter_name="metadata",
+                document_name=opf_archive_path,
+                document_path=opf_archive_path,
+                segment_kind="metadata_title",
+                source_language=options.source,
+                target_language=options.target,
+                original=original,
+                translated=result.text,
+                from_cache=result.from_cache,
+            )
+        )
+
+    return append_metadata_segment
+
+
+def _review_segment_for_document(
+    segment: HtmlTranslatedSegment,
+    source_path: Path,
+    destination_path: Path,
+    document: EpubDocument,
+    chapter_index: int,
+    segment_index: int,
+    options: TranslationOptions,
+) -> ReviewSegment:
+    return ReviewSegment(
+        segment_id=_review_segment_id(chapter_index, segment_index),
+        source_epub=str(source_path),
+        output_epub=str(destination_path),
+        chapter_index=chapter_index,
+        chapter_name=document.name,
+        document_name=document.name,
+        document_path=document.archive_path,
+        segment_kind=segment.kind,
+        source_language=options.source,
+        target_language=options.target,
+        original=segment.original,
+        translated=segment.translated,
+        from_cache=segment.from_cache,
+    )
+
+
+def _review_segment_id(chapter_index: int, segment_index: int) -> str:
+    return f"c{chapter_index:04d}-s{segment_index:04d}"
+
+
 def _translate_opf_title(
     opf_content: bytes,
     translator: Translator,
@@ -386,6 +480,7 @@ def _translate_opf_title(
     glossary: Glossary | None,
     report: TranslationReport,
     on_text_processed: TextProgressCallback | None,
+    on_review_text: MetadataReviewCallback | None = None,
 ) -> bytes | None:
     root = ET.fromstring(opf_content)
     title = _first_metadata_title(root)
@@ -402,6 +497,8 @@ def _translate_opf_title(
         dry_run=options.dry_run,
         chunk_limit=options.chunk_limit,
     )
+    if on_review_text:
+        on_review_text(title.text, result)
     title.text = result.text
     report.record_text(result)
     _notify_text_processed(on_text_processed, _text_progress_status(result, options.dry_run))
