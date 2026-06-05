@@ -175,6 +175,16 @@ Use `required: true` em regras `translate` ou `preserve` quando o termo esperado
 deve aparecer na saída. Ao final, o relatório conta termos aplicados e avisa
 termos obrigatórios ausentes ou termos `forbidden` encontrados no texto final.
 
+Use um glossário ativo por tradução ou perfil. O Ayvu não empilha vários arquivos de
+glossário na mesma execução, porque isso exigiria resolver conflitos entre regras diferentes
+para o mesmo termo. Quando um livro precisar de termos gerais, técnicos e específicos, componha
+esses termos em um único glossário por enquanto.
+
+Uma evolução futura pode separar glossários por papel, por exemplo um arquivo todo de
+traduções preferidas, outro de termos preservados e outro de termos proibidos. Para isso, o
+arquivo precisaria declarar sua regra padrão no início, em vez de repetir `rule` em cada termo.
+Esse formato ainda não está implementado.
+
 ### Usar perfis de tradução
 
 Perfis ficam no arquivo de configuração local e agrupam opções reutilizáveis:

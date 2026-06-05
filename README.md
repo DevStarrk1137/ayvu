@@ -320,6 +320,17 @@ Use `Glossaries` no modo comum para criar glossários guiados ou `glossary.examp
 como base para o modo desenvolvedor. O arquivo `glossary.json` local e os glossários privados
 são ignorados pelo Git para evitar versionar preferências pessoais ou conteúdo privado.
 
+Hoje cada tradução usa no máximo um glossário ativo: o arquivo escolhido em `--glossary`, o
+glossário associado ao perfil, ou nenhum glossário. O Ayvu não aceita vários `--glossary` na
+mesma execução. A decisão atual evita conflitos silenciosos entre arquivos, como um termo
+marcado para tradução em um glossário e para preservação ou proibição em outro.
+
+A direção planejada, se a necessidade crescer, é preferir glossários por regra em vez de
+empilhamento genérico. Nesse modelo futuro, um arquivo poderia declarar no início que todos os
+seus termos são `translate`, `preserve` ou `forbidden`, reduzindo repetição para quem mantém
+glossários grandes. Mesmo nesse caso, a implementação deve definir antes regras claras de
+prioridade, conflito e relatório.
+
 Antes de enviar cada trecho ao tradutor, o Ayvu protege termos especiais como URLs, caminhos de arquivo, comandos de terminal, versões como `v1.2.0`, código inline entre crases, placeholders e identificadores técnicos simples. Esses termos são restaurados antes da aplicação do glossário e antes de salvar a tradução no cache.
 
 ## Cache e Retomada
