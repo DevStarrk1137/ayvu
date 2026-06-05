@@ -55,6 +55,9 @@ lancadas e secoes versionadas quando uma release for publicada.
 - Opcao `--translate-alt-text` para traduzir o texto alternativo (`alt`) das
   imagens, preservando a imagem e demais atributos e contando os textos no
   relatorio. Leitura de texto dentro da imagem (OCR) fica fora do escopo.
+- Opcao `--review-output` para gerar CSV opcional com textos originais e
+  traduzidos lado a lado, IDs de capitulo/segmento e metadados de rastreio do
+  EPUB para revisao humana externa.
 
 ### Atualizado
 

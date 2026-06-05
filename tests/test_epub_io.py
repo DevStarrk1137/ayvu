@@ -187,6 +187,42 @@ def test_translate_epub_translates_minimal_generated_epub_without_mutating_input
     assert "../images/pixel.png" in chapter
 
 
+def test_translate_epub_collects_review_segments_with_document_metadata(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    output_path = tmp_path / "minimal-pt.epub"
+    translator = PrefixTranslator()
+    options = TranslationOptions(language_pair=LanguagePair(source="en", target="pt"))
+    review_segments = []
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=translator,
+            cache=cache,
+            options=options,
+            review_segments=review_segments,
+        )
+
+    assert review_segments
+    assert review_segments[0].segment_id == "c0001-s0001"
+    assert review_segments[0].source_epub == str(minimal_epub_path)
+    assert review_segments[0].output_epub == str(output_path)
+    assert review_segments[0].chapter_index == 1
+    assert review_segments[0].document_path.endswith("text/chapter1.xhtml")
+    assert review_segments[0].source_language == "en"
+    assert review_segments[0].target_language == "pt"
+
+    paragraph = next(segment for segment in review_segments if "Hello reader" in segment.original)
+    assert paragraph.segment_id == "c0001-s0003"
+    assert paragraph.segment_kind == "text"
+    assert paragraph.original == "Hello reader. Visit chapter two."
+    assert paragraph.translated == "PT:Hello reader. Visit chapter two."
+    assert not paragraph.from_cache
+
+
 def test_translate_epub_preserves_metadata_and_navigation_by_default(
     minimal_epub_path: Path,
     tmp_path: Path,
@@ -235,6 +271,36 @@ def test_translate_epub_translates_metadata_and_navigation_when_enabled(
     assert ("Minimal Test Book", "en", "pt") in translator.calls
     navigation = _read_navigation_document(output_path)
     assert 'PT:<a href="text/chapter1.xhtml">Chapter One</a>' in navigation
+
+
+def test_translate_epub_collects_metadata_review_segment_when_enabled(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    output_path = tmp_path / "minimal-pt.epub"
+    translator = PrefixTranslator()
+    options = TranslationOptions(
+        language_pair=LanguagePair(source="en", target="pt"),
+        translate_metadata=True,
+    )
+    review_segments = []
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=translator,
+            cache=cache,
+            options=options,
+            review_segments=review_segments,
+        )
+
+    metadata = next(segment for segment in review_segments if segment.segment_id == "metadata-title")
+    assert metadata.chapter_index == 0
+    assert metadata.chapter_name == "metadata"
+    assert metadata.segment_kind == "metadata_title"
+    assert metadata.original == "Minimal Test Book"
+    assert metadata.translated == "PT:Minimal Test Book"
 
 
 def _read_chapter_one(epub_path: Path) -> str:

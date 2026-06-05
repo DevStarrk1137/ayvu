@@ -113,6 +113,17 @@ class TextTranslationResult:
     glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
 
 
+@dataclass(frozen=True)
+class HtmlTranslatedSegment:
+    original: str
+    translated: str
+    kind: str
+    from_cache: bool = False
+
+
+SegmentReviewCallback = Callable[[HtmlTranslatedSegment], None]
+
+
 def extract_visible_text(html: str | bytes) -> list[str]:
     soup = BeautifulSoup(html, "lxml-xml")
     return [str(text_node) for text_node in _visible_text_nodes(soup) if str(text_node).strip()]
@@ -130,6 +141,7 @@ def translate_html(
     chunk_limit: int = 3000,
     on_error: Callable[[Exception], None] | None = None,
     on_text_processed: TextProgressCallback | None = None,
+    on_segment_translated: SegmentReviewCallback | None = None,
     translate_alt_text: bool = False,
 ) -> tuple[bytes, HtmlTranslationStats]:
     soup = BeautifulSoup(html, "lxml-xml")
@@ -155,6 +167,14 @@ def translate_html(
             if not dry_run:
                 fragment = _expand_tag_tokens(escape(result.text), tag_markup)
                 _replace_run(run, _parse_fragment_nodes(fragment))
+            _notify_segment_translated(
+                on_segment_translated,
+                original_template=template,
+                translated_template=result.text,
+                tag_markup=tag_markup,
+                kind="text",
+                from_cache=result.from_cache,
+            )
             stats.glossary_usage.merge(result.glossary_usage)
             _record_success(stats, result.from_cache, dry_run, on_text_processed)
         except Exception as exc:
@@ -179,6 +199,7 @@ def translate_html(
             stats=stats,
             on_error=on_error,
             on_text_processed=on_text_processed,
+            on_segment_translated=on_segment_translated,
         )
 
     return soup.encode(formatter="minimal"), stats
@@ -236,6 +257,7 @@ def _translate_image_alt_text(
     stats: HtmlTranslationStats,
     on_error: Callable[[Exception], None] | None,
     on_text_processed: TextProgressCallback | None,
+    on_segment_translated: SegmentReviewCallback | None,
 ) -> None:
     """Translate the ``alt`` text of ``img`` elements as plain text.
 
@@ -260,6 +282,14 @@ def _translate_image_alt_text(
             )
             if not dry_run:
                 image["alt"] = result.text
+            _notify_segment_translated(
+                on_segment_translated,
+                original_template=alt,
+                translated_template=result.text,
+                tag_markup=[],
+                kind="alt",
+                from_cache=result.from_cache,
+            )
             stats.glossary_usage.merge(result.glossary_usage)
             stats.alt_translated += 1
             _record_success(stats, result.from_cache, dry_run, on_text_processed)
@@ -488,6 +518,55 @@ def _protected_placeholder(index: int) -> str:
 def _notify_text_processed(callback: TextProgressCallback | None, status: str) -> None:
     if callback:
         callback(status)
+
+
+def _notify_segment_translated(
+    callback: SegmentReviewCallback | None,
+    original_template: str,
+    translated_template: str,
+    tag_markup: list[str],
+    kind: str,
+    from_cache: bool,
+) -> None:
+    if callback is None:
+        return
+
+    callback(
+        HtmlTranslatedSegment(
+            original=_review_text_from_template(original_template, tag_markup),
+            translated=_review_text_from_template(translated_template, tag_markup),
+            kind=kind,
+            from_cache=from_cache,
+        )
+    )
+
+
+def _review_text_from_template(template: str, tag_markup: list[str]) -> str:
+    fragment = _expand_tag_tokens(escape(template), tag_markup)
+    soup = BeautifulSoup(f"<{FRAGMENT_ROOT_TAG}>{fragment}</{FRAGMENT_ROOT_TAG}>", "lxml-xml")
+    root = soup.find(FRAGMENT_ROOT_TAG)
+    if root is None:
+        return TAG_TOKEN_PATTERN.sub("", template).strip()
+    return "".join(_review_visible_text_parts(root)).strip()
+
+
+def _review_visible_text_parts(node) -> list[str]:
+    parts: list[str] = []
+    for child in list(getattr(node, "children", [])):
+        if _is_special_string(child):
+            continue
+        if isinstance(child, NavigableString):
+            parts.append(str(child))
+            continue
+
+        name = _tag_name(child)
+        if name in {"script", "style", "svg", "math"}:
+            continue
+        if name == "br":
+            parts.append("\n")
+            continue
+        parts.extend(_review_visible_text_parts(child))
+    return parts
 
 
 def _record_success(

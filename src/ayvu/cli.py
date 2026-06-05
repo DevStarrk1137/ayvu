@@ -48,6 +48,7 @@ from .resume import (
     TranslationResumeState,
     default_processing_dir,
 )
+from .review_export import ReviewSegment, write_review_csv
 from .translator import LibreTranslateTranslator, TranslationRoute, TranslatorError, TranslatorLanguage
 from .validation import validate_output_epub
 
@@ -211,6 +212,11 @@ def translate(
         "-o",
         help="Output EPUB path. Defaults to <input-stem>-<target>.epub.",
     ),
+    review_output: Optional[Path] = typer.Option(
+        None,
+        "--review-output",
+        help="Optional CSV path with original and translated segments for external review.",
+    ),
     source: Optional[str] = typer.Option(
         None,
         "--source",
@@ -253,6 +259,7 @@ def translate(
     _run_translation(
         epub_path=epub_path,
         output=output,
+        review_output=review_output,
         source=source,
         target=target,
         translator_name=translator_name,
@@ -404,6 +411,7 @@ def _resolve_glossary_path(
 def _run_translation(
     epub_path: Path,
     output: Path | None,
+    review_output: Path | None,
     source: str | None,
     target: str | None,
     translator_name: str,
@@ -453,6 +461,12 @@ def _run_translation(
     output_plan = _confirm_default_output_location(output_plan, epub_path, mode=mode)
     output_plan = _resolve_existing_output_conflict(output_plan, overwrite=overwrite, mode=mode)
     output_path = output_plan.path
+    review_output_path = _resolve_review_output_path(
+        review_output,
+        dry_run=dry_run,
+        overwrite=overwrite,
+        mode=mode,
+    )
 
     try:
         preflight = run_translation_preflight(
@@ -490,6 +504,7 @@ def _run_translation(
         )
 
     progress_view: TranslationProgress | None = None
+    review_segments: list[ReviewSegment] | None = [] if review_output_path is not None else None
     try:
         with Progress(
             SpinnerColumn(),
@@ -512,6 +527,7 @@ def _run_translation(
                     on_chapter_start=progress_view.chapter_started,
                     on_chapter_done=progress_view.chapter_done,
                     on_text_processed=progress_view.text_processed,
+                    review_segments=review_segments,
                 )
     except KeyboardInterrupt as exc:
         _print_interrupted_translation(
@@ -521,6 +537,10 @@ def _run_translation(
             dry_run=dry_run,
         )
         raise typer.Exit(code=1) from exc
+
+    if review_output_path is not None and review_segments is not None:
+        _write_review_output(review_output_path, review_segments, overwrite=overwrite, mode=mode)
+        report.review_output_path = review_output_path
 
     validation = None if dry_run else _validate_with_progress(output_path)
     validation_warnings = validation.warnings if validation else []
@@ -690,6 +710,8 @@ def _print_report(
     table.add_row("Detected language", report.detected_language or "-")
     table.add_row("Translated language", report.target_language or "-")
     table.add_row("Output", _report_output_value(report, dry_run))
+    if report.review_output_path is not None:
+        table.add_row("Review file", str(report.review_output_path))
     table.add_row("Chapters processed", str(report.chapters_processed))
     table.add_row("Texts translated", str(report.texts_translated))
     table.add_row("Texts from cache", str(report.texts_from_cache))
@@ -733,6 +755,56 @@ def _print_glossary_warnings(report: TranslationReport) -> None:
         console.print(f"  - Required terms missing: {_format_terms(usage.required_terms_missing)}")
     if usage.forbidden_terms_found:
         console.print(f"  - Forbidden terms found: {_format_counted_terms(usage.forbidden_terms_found)}")
+
+
+def _resolve_review_output_path(
+    review_output: Path | None,
+    dry_run: bool,
+    overwrite: bool,
+    mode: UserMode,
+) -> Path | None:
+    if review_output is None:
+        return None
+
+    if dry_run:
+        _print_expected_error(
+            "Não é possível gerar arquivo de revisão em dry-run.",
+            "Remova --dry-run para gerar traduções revisáveis, ou remova --review-output.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+    path = review_output.expanduser()
+    if path.exists() and not overwrite:
+        _print_expected_error(
+            "Arquivo de revisão já existe.",
+            "Use --overwrite para substituí-lo ou escolha outro caminho em --review-output.",
+            mode,
+            detail=f"Review output: {path}",
+        )
+        raise typer.Exit(code=1)
+
+    return path
+
+
+def _write_review_output(
+    path: Path,
+    segments: list[ReviewSegment],
+    overwrite: bool,
+    mode: UserMode,
+) -> None:
+    try:
+        write_review_csv(path, segments, overwrite=overwrite)
+    except OSError as exc:
+        _print_expected_error(
+            "Não foi possível salvar o arquivo de revisão.",
+            "Escolha um caminho gravável para --review-output e tente novamente.",
+            mode,
+            detail=str(exc),
+        )
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"[green]Review file saved to:[/green] {path}")
 
 
 def _print_interrupted_translation(
@@ -934,6 +1006,7 @@ def _run_guided_translation(config: AyvuConfig) -> None:
     _run_translation(
         epub_path=epub_path,
         output=None,
+        review_output=None,
         source=None,
         target=target,
         translator_name="libretranslate",
@@ -1604,6 +1677,7 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
         _run_translation(
             epub_path=state.input_path,
             output=state.output_path,
+            review_output=None,
             source=state.source,
             target=state.target,
             translator_name=state.translator_name,
@@ -1746,6 +1820,8 @@ def _render_markdown_report(
         f"- Texts translated: {report.texts_translated}",
         f"- Texts from cache: {report.texts_from_cache}",
     ]
+    if report.review_output_path is not None:
+        lines.insert(6, f"- Review file: {report.review_output_path}")
     if report.alt_texts_translated:
         lines.append(f"- Alt texts translated: {report.alt_texts_translated}")
     lines.extend([

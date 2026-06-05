@@ -1,3 +1,4 @@
+import csv
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ from ayvu.glossary import GlossaryUsage
 from ayvu.library import LibraryOpenError
 from ayvu.preflight import PreflightError
 from ayvu.resume import COMPLETED_STATUS, ResumeStateStore, TranslationResumeState
+from ayvu.review_export import ReviewSegment
 from ayvu.translator import TranslatorError, TranslatorLanguage
 from ayvu.validation import ValidationResult
 
@@ -1352,6 +1354,131 @@ def test_translate_command_continues_when_existing_output_is_confirmed(tmp_path)
     assert "Detalhe técnico:" not in result.output
     assert "Unsupported translator:" not in result.output
     assert output_path.read_text(encoding="utf-8") == "already here"
+    assert "Traceback" not in result.output
+
+
+def test_translate_command_writes_review_output_when_requested(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    review_path = tmp_path / "book-review.csv"
+    processing_dir = tmp_path / "processing"
+    epub_path.write_bytes(b"fake epub")
+
+    def fake_translate(input_path: Path, output_path: Path, **kwargs: object) -> TranslationReport:
+        review_segments = kwargs["review_segments"]
+        assert isinstance(review_segments, list)
+        review_segments.append(
+            ReviewSegment(
+                segment_id="c0001-s0001",
+                source_epub=str(input_path),
+                output_epub=str(output_path),
+                chapter_index=1,
+                chapter_name="text/chapter.xhtml",
+                document_name="text/chapter.xhtml",
+                document_path="OEBPS/text/chapter.xhtml",
+                segment_kind="text",
+                source_language=kwargs["options"].source,
+                target_language=kwargs["options"].target,
+                original="Hello reader.",
+                translated="Ola leitor.",
+            )
+        )
+        return TranslationReport(
+            output_path=output_path,
+            input_path=input_path,
+            detected_language=kwargs["options"].source,
+            target_language=kwargs["options"].target,
+        )
+
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
+    )
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1))
+    monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
+
+    result = runner.invoke(
+        app,
+        [
+            "translate",
+            str(epub_path),
+            "--output",
+            str(output_path),
+            "--review-output",
+            str(review_path),
+        ],
+    )
+
+    with review_path.open(encoding="utf-8", newline="") as input_file:
+        rows = list(csv.DictReader(input_file))
+
+    assert result.exit_code == 0
+    assert "Review file saved to:" in result.output
+    assert "Review file" in result.output
+    assert rows[0]["segment_id"] == "c0001-s0001"
+    assert rows[0]["document_path"] == "OEBPS/text/chapter.xhtml"
+    assert rows[0]["original"] == "Hello reader."
+    assert rows[0]["translated"] == "Ola leitor."
+
+
+def test_translate_command_rejects_existing_review_output_without_overwrite(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    review_path = tmp_path / "book-review.csv"
+    epub_path.write_bytes(b"fake epub")
+    review_path.write_text("already here", encoding="utf-8")
+
+    def fail_preflight(**_kwargs: object) -> object:
+        raise AssertionError("preflight should not run when review output already exists")
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fail_preflight)
+
+    result = runner.invoke(
+        app,
+        [
+            "translate",
+            str(epub_path),
+            "--output",
+            str(output_path),
+            "--review-output",
+            str(review_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Arquivo de revisão já existe." in result.output
+    assert "Use --overwrite" in result.output
+    assert review_path.read_text(encoding="utf-8") == "already here"
+    assert "Traceback" not in result.output
+
+
+def test_translate_command_rejects_review_output_with_dry_run(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    review_path = tmp_path / "book-review.csv"
+    epub_path.write_bytes(b"fake epub")
+
+    def fail_preflight(**_kwargs: object) -> object:
+        raise AssertionError("preflight should not run for dry-run review output")
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fail_preflight)
+
+    result = runner.invoke(
+        app,
+        [
+            "translate",
+            str(epub_path),
+            "--dry-run",
+            "--review-output",
+            str(review_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Não é possível gerar arquivo de revisão em dry-run." in result.output
+    assert not review_path.exists()
     assert "Traceback" not in result.output
 
 
