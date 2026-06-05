@@ -11,7 +11,15 @@ from rich.table import Table
 
 from .cache import TranslationCache
 from .cli_progress import TranslationProgress, TranslationProgressSnapshot
-from .config import DEFAULT_BOOKS_DIR, AyvuConfig, ConfigError, ConfigStore, FolderNames, default_glossaries_dir
+from .config import (
+    DEFAULT_BOOKS_DIR,
+    AyvuConfig,
+    ConfigError,
+    ConfigStore,
+    FolderNames,
+    TranslationProfile,
+    default_glossaries_dir,
+)
 from .domain import (
     LanguagePair,
     OutputPlan,
@@ -71,6 +79,7 @@ GLOSSARY_PREVIEW_OPTION = "3"
 GLOSSARY_BACK_OPTION = "0"
 GLOSSARY_RULE_TRANSLATE_OPTION = "1"
 GLOSSARY_RULE_PRESERVE_OPTION = "2"
+PROFILE_NO_PROFILE_OPTION = "0"
 EXISTING_OUTPUT_OVERWRITE_OPTION = "1"
 EXISTING_OUTPUT_RENAME_OPTION = "2"
 EXISTING_OUTPUT_CANCEL_OPTION = "0"
@@ -207,11 +216,20 @@ def translate(
         "--source",
         help="Source language. If omitted, Ayvu reads the language metadata from the EPUB.",
     ),
-    target: str = typer.Option(DEFAULT_TARGET_LANGUAGE, "--target", help="Target language."),
+    target: Optional[str] = typer.Option(
+        None,
+        "--target",
+        help="Target language. Defaults to the profile target or pt.",
+    ),
     translator_name: str = typer.Option("libretranslate", "--translator", help="Translator backend."),
     url: str = typer.Option(DEFAULT_TRANSLATOR_URL, "--url", help="Translator base URL."),
     cache_path: Path = typer.Option(Path(".cache/traducoes.sqlite"), "--cache", help="SQLite cache path."),
     glossary_path: Optional[Path] = typer.Option(None, "--glossary", help="Optional JSON glossary."),
+    profile_name: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        help="Translation profile from the Ayvu config.",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Process without writing translated EPUB."),
     fail_fast: bool = typer.Option(False, "--fail-fast", help="Stop at the first chapter/text error."),
     overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing an existing output file."),
@@ -241,6 +259,7 @@ def translate(
         url=url,
         cache_path=cache_path,
         glossary_path=glossary_path,
+        profile_name=profile_name,
         dry_run=dry_run,
         fail_fast=fail_fast,
         overwrite=overwrite,
@@ -298,6 +317,8 @@ def _print_translation_plan(
     language_pair: LanguagePair,
     source_inferred: bool,
     mode: UserMode,
+    profile_name: str | None = None,
+    profile_style: str | None = None,
 ) -> None:
     table = Table(title="Translation plan")
     table.add_column("Field")
@@ -307,6 +328,10 @@ def _print_translation_plan(
         source_value = f"{language_pair.source} (inferido do EPUB)"
     table.add_row("From", source_value)
     table.add_row("To", language_pair.target)
+    if profile_name:
+        table.add_row("Profile", profile_name)
+    if profile_style:
+        table.add_row("Profile style", profile_style)
     console.print(table)
     if source_inferred and mode == UserMode.COMMON:
         console.print(f"[dim]Idioma de origem detectado do EPUB: {language_pair.source}[/dim]")
@@ -326,15 +351,66 @@ def _print_translation_route(route: TranslationRoute | None, mode: UserMode) -> 
         console.print("[yellow]Rota intermediária em uso. A qualidade pode ficar comprometida.[/yellow]")
 
 
+def _resolve_requested_profile(
+    config: AyvuConfig,
+    profile_name: str | None,
+    mode: UserMode,
+) -> tuple[str | None, TranslationProfile | None]:
+    if profile_name is None or not profile_name.strip():
+        return None, None
+
+    name = profile_name.strip()
+    profile = config.profiles.get(name)
+    if profile is not None:
+        return name, profile
+
+    available = ", ".join(sorted(config.profiles)) or "nenhum perfil configurado"
+    _print_expected_error(
+        "Perfil de tradução não encontrado.",
+        "Use --profile com um perfil definido em config.json, ou remova --profile para rodar sem perfil.",
+        mode,
+        detail=f"Perfil solicitado: {name}. Perfis disponíveis: {available}.",
+    )
+    raise typer.Exit(code=1)
+
+
+def _resolve_target_language(
+    explicit_target: str | None,
+    profile: TranslationProfile | None,
+    default_target: str = DEFAULT_TARGET_LANGUAGE,
+) -> str:
+    if explicit_target is not None and explicit_target.strip():
+        return explicit_target.strip()
+    if profile is not None and profile.target_language is not None:
+        return profile.target_language
+    return default_target
+
+
+def _resolve_glossary_path(
+    explicit_glossary_path: Path | None,
+    profile: TranslationProfile | None,
+) -> Path | None:
+    if explicit_glossary_path is not None:
+        return explicit_glossary_path
+    if profile is None or profile.glossary is None:
+        return None
+
+    profile_glossary = profile.glossary.expanduser()
+    if profile_glossary.is_absolute():
+        return profile_glossary
+    return default_glossaries_dir() / profile_glossary
+
+
 def _run_translation(
     epub_path: Path,
     output: Path | None,
     source: str | None,
-    target: str,
+    target: str | None,
     translator_name: str,
     url: str,
     cache_path: Path,
     glossary_path: Path | None,
+    profile_name: str | None,
     dry_run: bool,
     fail_fast: bool,
     overwrite: bool,
@@ -347,9 +423,18 @@ def _run_translation(
     translate_alt_text: bool = False,
 ) -> None:
     config = config or _load_existing_config_or_default()
+    resolved_profile_name, profile = _resolve_requested_profile(config, profile_name, mode=mode)
+    resolved_target = _resolve_target_language(target, profile)
+    resolved_glossary_path = _resolve_glossary_path(glossary_path, profile)
     resolved_source, source_inferred = _resolve_source_language(source, epub_path, mode=mode)
-    language_pair = LanguagePair(source=resolved_source, target=target)
-    _print_translation_plan(language_pair, source_inferred=source_inferred, mode=mode)
+    language_pair = LanguagePair(source=resolved_source, target=resolved_target)
+    _print_translation_plan(
+        language_pair,
+        source_inferred=source_inferred,
+        mode=mode,
+        profile_name=resolved_profile_name,
+        profile_style=profile.style if profile else None,
+    )
     translation_options = TranslationOptions(
         language_pair=language_pair,
         dry_run=dry_run,
@@ -373,7 +458,7 @@ def _run_translation(
         preflight = run_translation_preflight(
             epub_path=epub_path,
             cache_path=cache_path,
-            glossary_path=glossary_path,
+            glossary_path=resolved_glossary_path,
             translator_name=translator_name,
             url=url,
             timeout=timeout,
@@ -396,7 +481,7 @@ def _run_translation(
             cache_path=cache_path,
             translator_name=translator_name,
             url=url,
-            glossary_path=glossary_path,
+            glossary_path=resolved_glossary_path,
             options=translation_options,
             overwrite=overwrite,
             timeout=timeout,
@@ -841,8 +926,11 @@ def _handle_guided_main_choice(choice: str, ctx: typer.Context, config: AyvuConf
 
 def _run_guided_translation(config: AyvuConfig) -> None:
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
-    target = _choose_guided_target_language(config.default_target_language)
-    glossary_path = _choose_guided_translation_glossary()
+    profile_name, profile = _choose_guided_translation_profile(config)
+    target = _choose_guided_target_language(
+        _resolve_target_language(None, profile, default_target=config.default_target_language)
+    )
+    glossary_path = _choose_guided_profile_glossary(profile) or _choose_guided_translation_glossary()
     _run_translation(
         epub_path=epub_path,
         output=None,
@@ -852,6 +940,7 @@ def _run_guided_translation(config: AyvuConfig) -> None:
         url=DEFAULT_TRANSLATOR_URL,
         cache_path=Path(".cache/traducoes.sqlite"),
         glossary_path=glossary_path,
+        profile_name=profile_name,
         dry_run=False,
         fail_fast=False,
         overwrite=False,
@@ -867,6 +956,57 @@ def _run_guided_preview(config: AyvuConfig) -> None:
     epub_path = Path(typer.prompt("EPUB path")).expanduser()
     target = _choose_guided_target_language(config.default_target_language)
     _run_preview(epub_path, target=target, mode=UserMode.COMMON, config=config)
+
+
+def _choose_guided_translation_profile(
+    config: AyvuConfig,
+) -> tuple[str | None, TranslationProfile | None]:
+    if not config.profiles:
+        return None, None
+
+    profiles = tuple(sorted(config.profiles.items()))
+    console.print("[yellow]Translation profiles are configured.[/yellow]")
+    _print_translation_profiles(profiles)
+    console.print(f"{PROFILE_NO_PROFILE_OPTION}. Run without profile")
+
+    while True:
+        choice = typer.prompt("Choose profile", default=PROFILE_NO_PROFILE_OPTION).strip()
+        if choice == PROFILE_NO_PROFILE_OPTION:
+            return None, None
+        if choice.isdigit() and 1 <= int(choice) <= len(profiles):
+            name, profile = profiles[int(choice) - 1]
+            console.print(f"[green]Profile selected:[/green] {name}")
+            return name, profile
+        if choice in config.profiles:
+            console.print(f"[green]Profile selected:[/green] {choice}")
+            return choice, config.profiles[choice]
+        console.print(f"[red]Invalid profile.[/red] Choose 1-{len(profiles)} or 0.")
+
+
+def _print_translation_profiles(profiles: tuple[tuple[str, TranslationProfile], ...]) -> None:
+    table = Table(title="Translation profiles")
+    table.add_column("Option")
+    table.add_column("Name")
+    table.add_column("Target")
+    table.add_column("Glossary")
+    table.add_column("Style")
+    for index, (name, profile) in enumerate(profiles, start=1):
+        table.add_row(
+            str(index),
+            name,
+            profile.target_language or "-",
+            str(profile.glossary) if profile.glossary else "-",
+            profile.style or "-",
+        )
+    console.print(table)
+
+
+def _choose_guided_profile_glossary(profile: TranslationProfile | None) -> Path | None:
+    glossary_path = _resolve_glossary_path(None, profile)
+    if glossary_path is None:
+        return None
+    console.print(f"[green]Profile glossary:[/green] {glossary_path}")
+    return glossary_path
 
 
 def _run_guided_glossaries() -> None:
@@ -1267,6 +1407,7 @@ def _print_settings(config: AyvuConfig) -> None:
     table.add_row("Reports folder", config.folders.reports)
     table.add_row("Processing folder", config.folders.processing)
     table.add_row("Reader app", config.reader_app or "-")
+    table.add_row("Translation profiles", _format_profile_names(config))
     console.print(table)
 
 
@@ -1325,6 +1466,12 @@ def _settings_with_reader_app(config: AyvuConfig) -> AyvuConfig:
     if reader_app == config.reader_app:
         return config
     return replace(config, reader_app=reader_app)
+
+
+def _format_profile_names(config: AyvuConfig) -> str:
+    if not config.profiles:
+        return "-"
+    return ", ".join(sorted(config.profiles))
 
 
 def _prompt_path(prompt: str, current: Path) -> Path:
@@ -1463,6 +1610,7 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
             url=state.url,
             cache_path=state.cache_path,
             glossary_path=state.glossary_path,
+            profile_name=None,
             dry_run=False,
             fail_fast=state.fail_fast,
             overwrite=state.overwrite,

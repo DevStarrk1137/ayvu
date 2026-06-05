@@ -8,6 +8,7 @@ from ayvu.config import (
     ConfigError,
     ConfigStore,
     FolderNames,
+    TranslationProfile,
     default_config_path,
     default_glossaries_dir,
 )
@@ -39,6 +40,7 @@ def test_default_config_defines_initial_preferences():
     assert config.books_dir == Path("~/Documentos/Livros")
     assert config.folders == FolderNames()
     assert config.reader_app is None
+    assert config.profiles == {}
 
 
 def test_config_serializes_full_initial_format():
@@ -56,6 +58,7 @@ def test_config_serializes_full_initial_format():
             "processing": "Processando",
         },
         "reader_app": None,
+        "profiles": {},
     }
 
 
@@ -68,6 +71,44 @@ def test_config_loads_partial_file_with_defaults(tmp_path):
     assert config.default_target_language == "es"
     assert config.books_dir == Path("~/Documentos/Livros")
     assert config.folders.translated == "Traduzidos"
+    assert config.profiles == {}
+
+
+def test_config_loads_translation_profiles(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "profiles": {
+                    "technical": {
+                        "target_language": "pt-BR",
+                        "glossary": "technical.json",
+                        "style": "technical",
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = ConfigStore(config_path).load()
+
+    assert config.profiles == {
+        "technical": TranslationProfile(
+            target_language="pt-BR",
+            glossary=Path("technical.json"),
+            style="technical",
+        )
+    }
+    assert config.to_dict()["profiles"] == {
+        "technical": {
+            "target_language": "pt-BR",
+            "glossary": "technical.json",
+            "style": "technical",
+        }
+    }
 
 
 def test_config_resolves_feature_directories(tmp_path):
@@ -130,3 +171,22 @@ def test_folder_names_must_not_be_paths():
 def test_blank_default_language_is_rejected():
     with pytest.raises(ConfigError, match="default_target_language"):
         AyvuConfig.from_dict({"version": 1, "default_target_language": " "})
+
+
+def test_translation_profiles_must_be_objects():
+    with pytest.raises(ConfigError, match="profiles must be an object"):
+        AyvuConfig.from_dict({"version": 1, "profiles": []})
+
+
+def test_translation_profile_rejects_unknown_style():
+    with pytest.raises(ConfigError, match="style must be one of"):
+        AyvuConfig.from_dict(
+            {
+                "version": 1,
+                "profiles": {
+                    "custom": {
+                        "style": "cinematic",
+                    }
+                },
+            }
+        )

@@ -13,6 +13,16 @@ DEFAULT_BOOKS_DIR = "~/Documentos/Livros"
 DEFAULT_CONFIG_DIR = "ayvu"
 DEFAULT_CONFIG_FILE = "config.json"
 DEFAULT_GLOSSARIES_DIR = "glossaries"
+PROFILE_STYLE_NEUTRAL = "neutral"
+PROFILE_STYLE_TECHNICAL = "technical"
+PROFILE_STYLE_LITERARY = "literary"
+PROFILE_STYLE_ACADEMIC = "academic"
+PROFILE_STYLES = {
+    PROFILE_STYLE_NEUTRAL,
+    PROFILE_STYLE_TECHNICAL,
+    PROFILE_STYLE_LITERARY,
+    PROFILE_STYLE_ACADEMIC,
+}
 
 
 class ConfigError(ValueError):
@@ -47,12 +57,49 @@ class FolderNames:
 
 
 @dataclass(frozen=True)
+class TranslationProfile:
+    target_language: str | None = None
+    glossary: Path | None = None
+    style: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: object, profile_name: str) -> "TranslationProfile":
+        if not isinstance(data, dict):
+            raise ConfigError(f"Config profile {profile_name} must be an object.")
+
+        style = _optional_nullable_text(data, "style")
+        if style is not None and style not in PROFILE_STYLES:
+            allowed = ", ".join(sorted(PROFILE_STYLES))
+            raise ConfigError(
+                f"Config profile {profile_name} field style must be one of: {allowed}."
+            )
+
+        glossary = _optional_nullable_text(data, "glossary")
+        return cls(
+            target_language=_optional_nullable_text(data, "target_language"),
+            glossary=Path(glossary) if glossary is not None else None,
+            style=style,
+        )
+
+    def to_dict(self) -> dict[str, str]:
+        data: dict[str, str] = {}
+        if self.target_language is not None:
+            data["target_language"] = self.target_language
+        if self.glossary is not None:
+            data["glossary"] = str(self.glossary)
+        if self.style is not None:
+            data["style"] = self.style
+        return data
+
+
+@dataclass(frozen=True)
 class AyvuConfig:
     version: int = CONFIG_VERSION
     default_target_language: str = DEFAULT_TARGET_LANGUAGE
     books_dir: Path = Path(DEFAULT_BOOKS_DIR)
     folders: FolderNames = field(default_factory=FolderNames)
     reader_app: str | None = None
+    profiles: dict[str, TranslationProfile] = field(default_factory=dict)
 
     @classmethod
     def default(cls) -> "AyvuConfig":
@@ -77,6 +124,7 @@ class AyvuConfig:
             books_dir=Path(_optional_text(data, "books_dir", DEFAULT_BOOKS_DIR)),
             folders=FolderNames.from_dict(data.get("folders")),
             reader_app=_optional_nullable_text(data, "reader_app"),
+            profiles=_profiles_from_dict(data.get("profiles")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -86,6 +134,10 @@ class AyvuConfig:
             "books_dir": str(self.books_dir),
             "folders": self.folders.to_dict(),
             "reader_app": self.reader_app,
+            "profiles": {
+                name: profile.to_dict()
+                for name, profile in sorted(self.profiles.items())
+            },
         }
 
     @property
@@ -192,3 +244,20 @@ def _folder_name(data: dict[str, object], key: str, default: str) -> str:
     if path.is_absolute() or path.name != value or "/" in value or "\\" in value:
         raise ConfigError(f"Config folder name {key} must be a folder name, not a path.")
     return value
+
+
+def _profiles_from_dict(data: object) -> dict[str, TranslationProfile]:
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ConfigError("Config field profiles must be an object.")
+
+    profiles: dict[str, TranslationProfile] = {}
+    for raw_name, raw_profile in data.items():
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            raise ConfigError("Config profile names must be non-empty strings.")
+        name = raw_name.strip()
+        if name in profiles:
+            raise ConfigError(f"Config profile {name} is defined more than once.")
+        profiles[name] = TranslationProfile.from_dict(raw_profile, profile_name=name)
+    return profiles
