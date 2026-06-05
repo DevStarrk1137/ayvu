@@ -41,7 +41,7 @@ O Ayvu já possui:
 - modo comum guiado e modo desenvolvedor direto;
 - retomada local de traduções interrompidas;
 - comando para listar idiomas do LibreTranslate;
-- formato inicial de configuração local;
+- formato inicial de configuração local com perfis de tradução;
 - biblioteca inicial para listar originais e traduções e abrir EPUBs no leitor configurado ou padrão do sistema;
 - validação do EPUB gerado com barra de progresso e avisos de capítulo vazio, link interno quebrado e imagem ausente;
 - testes automatizados e CI no GitHub Actions.
@@ -243,7 +243,7 @@ regras explícitas `translate`, `preserve` e `forbidden`.
 
 `src/ayvu/cli_progress.py` adapta callbacks de tradução para `rich.Progress` e mantém contadores de textos.
 
-`src/ayvu/config.py` define o formato inicial de configuração JSON, o caminho padrão do arquivo, leitura/gravação e resolução das pastas locais do Ayvu. O menu guiado de `Settings` permite alterar idioma padrão, pasta base, nomes das pastas das funcionalidades e app leitor.
+`src/ayvu/config.py` define o formato inicial de configuração JSON, perfis de tradução, o caminho padrão do arquivo, leitura/gravação e resolução das pastas locais do Ayvu. O menu guiado de `Settings` permite alterar idioma padrão, pasta base, nomes das pastas das funcionalidades e app leitor, além de mostrar os perfis configurados.
 
 `src/ayvu/validation.py` valida o EPUB gerado: confirma abertura e documentos XHTML/HTML e avisa sobre capítulos vazios, links internos quebrados e imagens referenciadas ausentes, com callback de progresso opcional. Qualquer aviso faz a execução falhar com código 1.
 
@@ -275,17 +275,19 @@ Formato versionado atual:
     "reports": "Relatorios",
     "processing": "Processando"
   },
-  "reader_app": null
+  "reader_app": null,
+  "profiles": {}
 }
 ```
 
-A precedência usada pelos fluxos atuais é:
+A precedência para campos cobertos por perfis de tradução é:
 
 ```text
-argumentos da CLI > arquivo de configuração > padrões internos
+argumentos da CLI > perfil selecionado > arquivo de configuração > padrões internos
 ```
 
 Hoje a configuração já alimenta os diretórios padrão de preview, traduções, relatórios Markdown, estados de processamento e biblioteca. O app leitor configurado é usado pela biblioteca ao abrir EPUBs.
+Perfis podem definir `target_language`, `glossary` e `style`; caminhos relativos de glossário são resolvidos a partir da pasta local `glossaries`. Com LibreTranslate, `style` é metadado informativo e não altera a chamada HTTP.
 
 ## 10. Pipeline de EPUB
 

@@ -626,6 +626,62 @@ def test_root_command_selects_saved_glossary_for_guided_translation(isolated_con
     assert calls["glossary"] is not None
 
 
+def test_root_command_selects_profile_for_guided_translation(isolated_config, tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    output_dir = tmp_path / "Traduzidos"
+    processing_dir = tmp_path / "Processando"
+    epub_path.write_bytes(b"fake epub")
+    profile_glossary_path = isolated_config.parent / "glossaries" / "technical.json"
+    isolated_config.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "default_target_language": "pt",
+                "profiles": {
+                    "technical": {
+                        "target_language": "es",
+                        "glossary": "technical.json",
+                        "style": "technical",
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    calls: dict[str, object] = {}
+
+    def fake_preflight(**kwargs: object) -> object:
+        calls["preflight"] = kwargs
+        return SimpleNamespace(translator=object(), glossary=object(), route=None)
+
+    def fake_translate(input_path: Path, output_path: Path, **kwargs: object) -> TranslationReport:
+        calls["input_path"] = input_path
+        calls["output_path"] = output_path
+        calls["options"] = kwargs["options"]
+        return TranslationReport(output_path=output_path, input_path=input_path, target_language="es")
+
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: output_dir)
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fake_preflight)
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1))
+    monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
+
+    result = runner.invoke(app, [], input=f"1\n{epub_path}\n1\n1\ny\n")
+
+    preflight = calls["preflight"]
+    options = calls["options"]
+    assert result.exit_code == 0
+    assert "Translation profiles are configured." in result.output
+    assert "Profile selected:" in result.output
+    assert "Profile glossary:" in result.output
+    assert preflight["language_pair"].target == "es"
+    assert preflight["glossary_path"] == profile_glossary_path
+    assert options.target == "es"
+
+
 def test_root_command_shows_empty_guided_library(isolated_config, tmp_path):
     books_dir = tmp_path / "Biblioteca"
     isolated_config.write_text(
@@ -1650,6 +1706,121 @@ def test_translate_explicit_source_overrides_epub_metadata(minimal_epub_path, tm
     assert result.exit_code == 0
     assert calls["options"].source == "fr"
     assert "inferido do EPUB" not in result.output
+
+
+def test_translate_command_uses_profile_target_and_glossary(
+    isolated_config,
+    minimal_epub_path,
+    tmp_path,
+    monkeypatch,
+):
+    isolated_config.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "profiles": {
+                    "technical": {
+                        "target_language": "es",
+                        "glossary": "technical.json",
+                        "style": "technical",
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(
+        app,
+        ["--mode", "developer", "translate", str(minimal_epub_path), "--profile", "technical"],
+    )
+
+    preflight = calls["preflight"]
+    options = calls["options"]
+    assert result.exit_code == 0
+    assert "Profile" in result.output
+    assert "technical" in result.output
+    assert preflight["language_pair"].target == "es"
+    assert preflight["glossary_path"] == isolated_config.parent / "glossaries" / "technical.json"
+    assert options.target == "es"
+
+
+def test_translate_command_explicit_target_and_glossary_override_profile(
+    isolated_config,
+    minimal_epub_path,
+    tmp_path,
+    monkeypatch,
+):
+    profile_glossary_path = isolated_config.parent / "glossaries" / "technical.json"
+    explicit_glossary_path = tmp_path / "custom.json"
+    isolated_config.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "profiles": {
+                    "technical": {
+                        "target_language": "es",
+                        "glossary": str(profile_glossary_path),
+                        "style": "technical",
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(
+        app,
+        [
+            "--mode",
+            "developer",
+            "translate",
+            str(minimal_epub_path),
+            "--profile",
+            "technical",
+            "--target",
+            "fr",
+            "--glossary",
+            str(explicit_glossary_path),
+        ],
+    )
+
+    preflight = calls["preflight"]
+    options = calls["options"]
+    assert result.exit_code == 0
+    assert preflight["language_pair"].target == "fr"
+    assert preflight["glossary_path"] == explicit_glossary_path
+    assert options.target == "fr"
+
+
+def test_translate_command_reports_unknown_profile_without_traceback(minimal_epub_path, monkeypatch):
+    called = False
+
+    def fail_preflight(**_kwargs: object) -> object:
+        nonlocal called
+        called = True
+        raise AssertionError("preflight should not run for an unknown profile")
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fail_preflight)
+
+    result = runner.invoke(
+        app,
+        ["--mode", "developer", "translate", str(minimal_epub_path), "--profile", "missing"],
+    )
+
+    assert result.exit_code == 1
+    assert "Perfil de tradução não encontrado." in result.output
+    assert "Use --profile com um perfil definido" in result.output
+    assert "Traceback" not in result.output
+    assert not called
 
 
 def test_translate_metadata_flag_reaches_translation_options(minimal_epub_path, tmp_path, monkeypatch):

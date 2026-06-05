@@ -43,9 +43,11 @@ Abra o menu inicial:
 uv run ayvu
 ```
 
-O menu permite iniciar uma tradução, gerar preview, abrir biblioteca, gerenciar glossários, ver ajuda e acessar configurações. A biblioteca lista EPUBs das pastas configuradas para originais e traduções, mostra as versões disponíveis e permite abrir o arquivo escolhido no leitor configurado ou no leitor padrão detectado no sistema. As configurações permitem alterar idioma padrão, pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB.
+O menu permite iniciar uma tradução, gerar preview, abrir biblioteca, gerenciar glossários, ver ajuda e acessar configurações. A biblioteca lista EPUBs das pastas configuradas para originais e traduções, mostra as versões disponíveis e permite abrir o arquivo escolhido no leitor configurado ou no leitor padrão detectado no sistema. As configurações permitem alterar idioma padrão, pasta base dos livros, nomes das pastas das funcionalidades e app leitor de EPUB, além de mostrar os perfis de tradução configurados.
 
 No primeiro uso, o Ayvu pergunta o idioma padrão de leitura/tradução e a pasta base dos livros. Em seguida, mostra os nomes das pastas das funcionalidades e permite manter os padrões ou alterá-los uma única vez antes de salvar a configuração. Essa pasta é usada para organizar biblioteca, previews, relatórios, traduções e estados de processamento.
+
+Se houver perfis de tradução no arquivo de configuração, a tradução guiada mostra esses perfis antes da escolha do idioma de destino. Um perfil pode fornecer um idioma padrão diferente e um glossário associado.
 
 ### Gerar um preview
 
@@ -172,6 +174,34 @@ O glossário é aplicado depois da tradução e também sobre textos vindos do c
 Use `required: true` em regras `translate` ou `preserve` quando o termo esperado
 deve aparecer na saída. Ao final, o relatório conta termos aplicados e avisa
 termos obrigatórios ausentes ou termos `forbidden` encontrados no texto final.
+
+### Usar perfis de tradução
+
+Perfis ficam no arquivo de configuração local e agrupam opções reutilizáveis:
+
+```json
+{
+  "profiles": {
+    "technical": {
+      "target_language": "pt",
+      "glossary": "technical.json",
+      "style": "technical"
+    }
+  }
+}
+```
+
+Use o perfil no modo desenvolvedor:
+
+```bash
+uv run ayvu translate livro.epub --profile technical
+```
+
+No modo comum, escolha o perfil quando ele aparecer antes da seleção do idioma. Caminhos relativos
+em `glossary` são resolvidos dentro de `$XDG_CONFIG_HOME/ayvu/glossaries` ou
+`~/.config/ayvu/glossaries`. `--target` e `--glossary` continuam tendo precedência sobre o
+perfil. O campo `style` aceita `neutral`, `technical`, `literary` ou `academic`, mas com
+LibreTranslate ele ainda é apenas informativo.
 
 ### Usar cache de forma consistente
 
@@ -348,7 +378,7 @@ Depois da tradução:
 ## Limites atuais
 
 - A biblioteca inicial lista e abre EPUBs, mas ainda não gerencia importação automática, fila ou histórico completo.
-- Configurações ainda cobrem apenas as preferências locais iniciais.
+- Perfis ainda não têm editor guiado completo; edite `profiles` diretamente no arquivo de configuração.
 - A tradução ainda acontece por nós de texto, então frases quebradas por tags podem perder contexto.
 - A qualidade depende do servidor de tradução local.
 - Livros técnicos costumam exigir glossário.

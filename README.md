@@ -11,6 +11,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Preservação de tags, CSS, imagens, links, sumário e nomes de arquivos internos.
 - Cache SQLite para retomar traduções interrompidas e evitar chamadas repetidas.
 - Glossário JSON opcional e fluxo guiado para padronizar termos técnicos.
+- Perfis de tradução para agrupar idioma de destino, glossário e estilo planejado.
 - Proteção de URLs, caminhos, comandos, versões, código inline e identificadores técnicos simples durante a tradução.
 - Nome de saída automático baseado no idioma de destino.
 - Preview traduzido de uma amostra inicial do EPUB.
@@ -124,6 +125,12 @@ uv run ayvu translate livro.epub \
   --cache .cache/traducoes.sqlite
 ```
 
+Traduzir usando um perfil salvo na configuração:
+
+```bash
+uv run ayvu translate livro.epub --profile technical
+```
+
 Se `--source` não for informado, o Ayvu lê o idioma do EPUB nos metadados, exibe o
 plano da tradução (`From`/`To`) antes de começar e usa o idioma detectado como
 origem. Quando o metadado estiver ausente ou inválido, o Ayvu avisa e usa `en`
@@ -184,11 +191,16 @@ livro, gerar preview, abrir biblioteca, gerenciar glossários, acessar configura
 lista EPUBs das pastas `Original` e `Traduzidos`, mostra as versões disponíveis de cada livro e
 permite abrir o original ou uma tradução no leitor configurado ou no leitor padrão detectado no
 sistema. A opção `Settings` permite ver e alterar idioma padrão, pasta base dos livros, nomes das
-pastas das funcionalidades e app leitor de EPUB. Nos fluxos
+pastas das funcionalidades, app leitor de EPUB e perfis de tradução configurados. Nos fluxos
 guiados de tradução e preview, o Ayvu mostra o idioma de destino padrão salvo como primeira
 opção. Ao escolher `Outro idioma`, ele lista os idiomas informados pelo LibreTranslate com nome,
 código e estado, permitindo selecionar pela opção exibida ou digitar um código.
 No modo desenvolvedor, o idioma de destino continua sendo definido por `--target`.
+
+Se perfis estiverem configurados, o fluxo guiado de tradução permite escolher um perfil antes do
+idioma de destino. O perfil pode fornecer um idioma padrão diferente e um glossário associado.
+No modo desenvolvedor, use `--profile nome`. Flags explícitas como `--target` e `--glossary`
+sobrescrevem os valores do perfil.
 
 Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
 
@@ -382,14 +394,34 @@ Formato inicial:
     "reports": "Relatorios",
     "processing": "Processando"
   },
-  "reader_app": null
+  "reader_app": null,
+  "profiles": {}
 }
 ```
 
-A precedência usada pelos fluxos atuais é:
+Perfis podem ser adicionados manualmente em `profiles`:
+
+```json
+{
+  "profiles": {
+    "technical": {
+      "target_language": "pt",
+      "glossary": "technical.json",
+      "style": "technical"
+    }
+  }
+}
+```
+
+`target_language` define o idioma de destino padrão quando `--target` não for informado.
+`glossary` aceita caminho absoluto ou caminho relativo à pasta local de glossários. `style`
+aceita `neutral`, `technical`, `literary` ou `academic`, mas no backend LibreTranslate atual
+serve apenas como metadado do perfil; ele não muda o prompt nem o comportamento do tradutor.
+
+A precedência para campos cobertos por perfis de tradução é:
 
 ```text
-argumentos da CLI > arquivo de configuração > padrões internos
+argumentos da CLI > perfil selecionado > arquivo de configuração > padrões internos
 ```
 
 Sem caminhos explícitos, a pasta base e os nomes de pastas configurados definem onde o Ayvu salva

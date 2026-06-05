@@ -48,6 +48,8 @@ lancadas e secoes versionadas quando uma release for publicada.
   obrigatorios ausentes e termos proibidos encontrados na saida.
 - Menu guiado de glossarios no modo comum, com criacao, edicao, previa,
   validacao, salvamento local e selecao antes de traduzir.
+- Perfis de traducao em `config.json`, com selecao por `--profile`, idioma de
+  destino padrao, glossario associado e campo de estilo informativo.
 - Opcao `--translate-metadata` para traduzir o titulo do EPUB e a navegacao
   EPUB 3 de forma explicita e conservadora.
 - Opcao `--translate-alt-text` para traduzir o texto alternativo (`alt`) das
