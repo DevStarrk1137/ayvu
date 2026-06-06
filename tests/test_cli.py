@@ -18,6 +18,7 @@ from ayvu.cli import (
 from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions, UserMode
 from ayvu.epub_io import ReviewApplyReport, TranslationReport
 from ayvu.glossary import GlossaryUsage
+from ayvu.html_translate import HtmlTranslationStats
 from ayvu.library import LibraryOpenError
 from ayvu.preflight import PreflightError
 from ayvu.resume import COMPLETED_STATUS, ResumeStateStore, TranslationResumeState
@@ -531,6 +532,168 @@ def test_root_command_without_processing_state_has_no_processing_noise(tmp_path,
     assert "Canceled." in result.output
     assert "Translations in progress were found." not in result.output
     assert "Invalid processing state files were found." not in result.output
+
+
+def _running_resume_state(
+    tmp_path: Path,
+    stem: str,
+    target: str,
+    create_epub: bool = True,
+) -> TranslationResumeState:
+    epub_path = tmp_path / "Original" / f"{stem}.epub"
+    if create_epub:
+        epub_path.parent.mkdir(parents=True, exist_ok=True)
+        epub_path.write_bytes(b"fake epub")
+    return TranslationResumeState.create(
+        input_path=epub_path,
+        output_path=tmp_path / "Traduzidos" / f"{stem}-{target}.epub",
+        cache_path=tmp_path / "cache.sqlite",
+        translator_name="libretranslate",
+        url="http://localhost:5000",
+        glossary_path=None,
+        options=TranslationOptions(language_pair=LanguagePair(source="en", target=target)),
+        overwrite=False,
+        timeout=30.0,
+        retries=2,
+    )
+
+
+def _patch_resume_pipeline(monkeypatch, processing_dir: Path, calls: dict[str, object]) -> None:
+    def fake_translate(input_path: Path, output_path: Path, **kwargs: object) -> TranslationReport:
+        options = kwargs["options"]
+        calls["options"] = options
+        return TranslationReport(
+            output_path=output_path,
+            input_path=input_path,
+            target_language=options.target,
+        )
+
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
+    )
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr(
+        "ayvu.cli.validate_output_epub",
+        lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1),
+    )
+    monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
+
+
+def test_resume_command_resumes_single_state(tmp_path, monkeypatch):
+    processing_dir = tmp_path / "Processando"
+    state = _running_resume_state(tmp_path, "book", "pt").record_chapter(
+        "chapter-one.xhtml", 2, ok=True
+    )
+    ResumeStateStore(processing_dir).save(state)
+    calls: dict[str, object] = {}
+    _patch_resume_pipeline(monkeypatch, processing_dir, calls)
+
+    result = runner.invoke(app, ["resume"])
+
+    assert result.exit_code == 0
+    assert "Resuming translation:" in result.output
+    assert "Resume checkpoint" in result.output
+    assert "1/2" in result.output
+    assert calls["options"].source == "en"
+    assert calls["options"].target == "pt"
+
+
+def test_resume_command_without_state_reports_clear_error(tmp_path, monkeypatch):
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "missing")
+
+    result = runner.invoke(app, ["resume"])
+
+    assert result.exit_code == 1
+    assert "No translation in progress was found to resume." in result.output
+    assert "ayvu translate" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_resume_command_selects_state_by_epub_and_target(tmp_path, monkeypatch):
+    processing_dir = tmp_path / "Processando"
+    store = ResumeStateStore(processing_dir)
+    store.save(_running_resume_state(tmp_path, "alpha", "pt"))
+    beta = _running_resume_state(tmp_path, "beta", "es")
+    store.save(beta)
+    calls: dict[str, object] = {}
+    _patch_resume_pipeline(monkeypatch, processing_dir, calls)
+
+    result = runner.invoke(app, ["resume", str(beta.input_path), "--target", "es"])
+
+    assert result.exit_code == 0
+    assert "beta.epub" in result.output
+    assert calls["options"].target == "es"
+
+
+def test_resume_command_requires_disambiguation_for_multiple_states(tmp_path, monkeypatch):
+    processing_dir = tmp_path / "Processando"
+    store = ResumeStateStore(processing_dir)
+    store.save(_running_resume_state(tmp_path, "alpha", "pt"))
+    store.save(_running_resume_state(tmp_path, "beta", "es"))
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+
+    result = runner.invoke(app, ["resume"])
+
+    assert result.exit_code == 1
+    assert "Several translations in progress match the request." in result.output
+    assert "Specify the EPUB and --target" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_translate_command_records_chapter_checkpoint(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    cache_path = tmp_path / "cache.sqlite"
+    processing_dir = tmp_path / "Processando"
+    epub_path.write_bytes(b"fake epub")
+
+    def fake_translate(*_args: object, **kwargs: object) -> TranslationReport:
+        kwargs["on_chapter_start"](1, 2, "chapter-one.xhtml")
+        kwargs["on_chapter_done"](1, 2, "chapter-one.xhtml", HtmlTranslationStats())
+        kwargs["on_chapter_start"](2, 2, "chapter-two.xhtml")
+        kwargs["on_chapter_done"](
+            2, 2, "chapter-two.xhtml", HtmlTranslationStats(errors=["boom"], missing=1)
+        )
+        return TranslationReport(output_path=output_path, input_path=epub_path, target_language="pt")
+
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
+    )
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate)
+    monkeypatch.setattr(
+        "ayvu.cli.validate_output_epub",
+        lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1),
+    )
+    monkeypatch.setattr("ayvu.cli._offer_markdown_report", lambda *_args, **_kwargs: None)
+
+    result = runner.invoke(
+        app,
+        [
+            "translate",
+            str(epub_path),
+            "--output",
+            str(output_path),
+            "--cache",
+            str(cache_path),
+            "--source",
+            "en",
+            "--target",
+            "pt",
+        ],
+    )
+
+    saved = ResumeStateStore(processing_dir).load(processing_dir / "book-pt.ayvu-state.json")
+    assert result.exit_code == 0
+    assert saved.completed_chapters == ("chapter-one.xhtml",)
+    assert saved.failed_chapters == ("chapter-two.xhtml",)
+    assert saved.failed_segment_count == 2
+    assert saved.total_chapters == 2
 
 
 def test_root_command_generates_guided_preview_when_confirmed(tmp_path, monkeypatch):
@@ -2042,10 +2205,11 @@ def test_translate_command_handles_keyboard_interrupt_cleanly(tmp_path, monkeypa
         kwargs["on_text_processed"]("translated")
         kwargs["on_text_processed"]("cache")
         kwargs["on_text_processed"]("error")
-        kwargs["on_chapter_done"](1, 3, "chapter-one.xhtml", object())
+        kwargs["on_chapter_done"](1, 3, "chapter-one.xhtml", HtmlTranslationStats())
         kwargs["on_chapter_start"](2, 3, "chapter-two.xhtml")
         raise KeyboardInterrupt
 
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "Processando")
     monkeypatch.setattr(
         "ayvu.cli.run_translation_preflight",
         lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),

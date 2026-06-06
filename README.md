@@ -10,6 +10,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Tradução por bloco (parágrafos, títulos e listas) preservando tags internas como `em`, `strong` e links via placeholders.
 - Preservação de tags, CSS, imagens, links, sumário e nomes de arquivos internos.
 - Cache SQLite para retomar traduções interrompidas e evitar chamadas repetidas.
+- Checkpoints de progresso por capítulo e comando `resume` para retomar com segurança traduções longas.
 - Glossário JSON opcional e fluxo guiado para padronizar termos técnicos.
 - Perfis de tradução para agrupar idioma de destino, glossário e estilo planejado.
 - Proteção de URLs, caminhos, comandos, versões, código inline e identificadores técnicos simples durante a tradução.
@@ -139,6 +140,13 @@ uv run ayvu cache inspect --cache .cache/traducoes.sqlite
 uv run ayvu cache clean --cache .cache/traducoes.sqlite --source en --target pt --dry-run
 uv run ayvu cache export cache-ayvu.json --cache .cache/traducoes.sqlite
 uv run ayvu cache import cache-ayvu.json --cache .cache/traducoes.sqlite
+```
+
+Retomar uma tradução interrompida a partir do checkpoint salvo:
+
+```bash
+uv run ayvu resume
+uv run ayvu resume livro.epub --target pt
 ```
 
 Traduzir vários EPUBs em uma única execução:
@@ -460,13 +468,35 @@ ser substituídas com `--replace`.
 O arquivo exportado inclui texto original e texto traduzido. Trate esse JSON
 como conteúdo privado do livro, da mesma forma que o EPUB e o cache SQLite.
 
-Durante traduções reais, o Ayvu também grava um estado local da execução em
-`~/Documentos/Livros/Processando`, ou na pasta de processamento configurada. Esse arquivo registra os caminhos e opções
-necessários para uma retomada futura. Ele não substitui o cache e não é apagado
+Durante traduções reais, o Ayvu também grava um checkpoint local da execução em
+`~/Documentos/Livros/Processando`, ou na pasta de processamento configurada
+(arquivo `*.ayvu-state.json`). Além dos caminhos e opções da execução, esse
+checkpoint é atualizado **a cada capítulo** e registra o progresso: total de
+capítulos, o capítulo atual, os capítulos concluídos, os capítulos com falha e
+quantos segmentos falharam. Ele não substitui o cache e não é apagado
 automaticamente.
 
-Ao executar `uv run ayvu`, o modo comum procura estados de tradução em andamento
-nessa pasta e oferece retomar uma execução detectada.
+Para retomar uma tradução interrompida sem redigitar as opções, use o comando
+`resume`:
+
+```bash
+uv run ayvu resume
+uv run ayvu resume livro.epub --target pt
+```
+
+Sem argumentos, `resume` continua a única tradução em andamento; havendo mais de
+uma, informe o EPUB e o `--target` para escolher. O comando mostra o checkpoint
+(até onde foi) e reexecuta a tradução com as opções salvas. Ao executar apenas
+`uv run ayvu`, o modo comum também procura estados em andamento e oferece retomar
+a execução detectada, mostrando o mesmo resumo de checkpoint.
+
+Checkpoint e cache se complementam: o **cache** guarda cada trecho já traduzido e
+evita retraduzi-lo, enquanto o **checkpoint** registra o progresso e as falhas.
+Como o EPUB de saída só é escrito por inteiro ao final, a retomada reprocessa
+todos os capítulos, mas, graças ao cache, apenas os segmentos ainda não cacheados
+(os que faltaram ou falharam antes) chamam de fato o tradutor — ou seja, a
+retomada já reprocessa só o que ficou pendente. Por isso o checkpoint e o cache
+devem usar os mesmos caminhos entre as execuções.
 
 ### Modo cache-only
 

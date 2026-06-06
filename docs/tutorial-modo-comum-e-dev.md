@@ -96,13 +96,15 @@ arquivo automaticamente.
 
 ### Retomar uma tradução interrompida
 
-Durante traduções reais, o Ayvu registra um estado local em:
+Durante traduções reais, o Ayvu registra um checkpoint local em:
 
 ```text
 ~/Documentos/Livros/Processando
 ```
 
-Ao executar `uv run ayvu`, o modo comum procura estados em andamento e oferece retomar uma tradução detectada. O cache SQLite continua sendo a parte que evita retraduzir textos já concluídos.
+Esse checkpoint (`*.ayvu-state.json`) é atualizado a cada capítulo e guarda o progresso: total de capítulos, capítulo atual, capítulos concluídos e capítulos com falha.
+
+Ao executar `uv run ayvu`, o modo comum procura estados em andamento, mostra o resumo do checkpoint e oferece retomar a tradução detectada. O cache SQLite continua sendo a parte que evita retraduzir textos já concluídos: na retomada, só os trechos ainda não cacheados (os que faltaram ou falharam) chamam o tradutor de novo.
 
 ## Tutorial intermediário: preview, glossário e organização
 
@@ -455,6 +457,22 @@ uv run ayvu translate livro.epub \
   --target pt \
   --dry-run
 ```
+
+### Retomar a partir do checkpoint
+
+O comando `resume` continua uma tradução em andamento usando o checkpoint salvo,
+sem redigitar as opções:
+
+```bash
+uv run ayvu resume
+uv run ayvu resume livro.epub --target pt
+```
+
+Sem argumentos, ele retoma a única tradução em andamento; havendo mais de uma,
+informe o EPUB e o `--target`. O comando mostra o checkpoint (capítulos
+concluídos, capítulo atual e falhas) e reexecuta a tradução com as opções da
+execução original. O cache evita retraduzir o que já foi concluído, então só os
+trechos pendentes chamam o tradutor.
 
 ### Reconstruir usando apenas o cache
 

@@ -34,6 +34,11 @@ lancadas e secoes versionadas quando uma release for publicada.
   gerenciar o cache SQLite fora do fluxo normal de traducao.
 - Estado local de retomada em `~/Documentos/Livros/Processando` ou na pasta de
   processamento configurada.
+- Checkpoints de progresso no estado de retomada, atualizados a cada capitulo com
+  total de capitulos, capitulo atual, capitulos concluidos, capitulos com falha e
+  contagem de segmentos que falharam.
+- Comando `resume` para retomar uma traducao em andamento a partir do checkpoint
+  salvo, reaproveitando as opcoes da execucao e o cache.
 - Oferta de retomada no modo comum quando uma traducao em andamento e detectada.
 - Relatorio Markdown opcional no modo comum.
 - Validacao do EPUB gerado com barra de progresso, avisos de capitulos vazios,
