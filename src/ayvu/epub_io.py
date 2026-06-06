@@ -96,11 +96,14 @@ class TranslationReport:
     texts_translated: int = 0
     texts_from_cache: int = 0
     texts_skipped: int = 0
+    texts_missing: int = 0
     alt_texts_translated: int = 0
     errors: list[str] = field(default_factory=list)
+    missing_texts: list[str] = field(default_factory=list)
     glossary_terms_configured: int = 0
     glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
     output_path: Path | None = None
+    output_written: bool = True
     review_output_path: Path | None = None
     input_path: Path | None = None
     detected_language: str | None = None
@@ -113,13 +116,18 @@ class TranslationReport:
         self.texts_translated += stats.translated
         self.texts_from_cache += stats.from_cache
         self.texts_skipped += stats.skipped
+        self.texts_missing += stats.missing
         self.alt_texts_translated += stats.alt_translated
         self.errors.extend(stats.errors)
+        self.missing_texts.extend(stats.missing_texts)
         self.glossary_usage.merge(stats.glossary_usage)
         self.chapters_processed += 1
 
     def record_text(self, result: TextTranslationResult) -> None:
-        if result.from_cache:
+        if result.missing:
+            self.texts_missing += 1
+            self.missing_texts.append(result.text)
+        elif result.from_cache:
             self.texts_from_cache += 1
         else:
             self.texts_translated += 1
@@ -281,6 +289,7 @@ def translate_epub(
                     target=options.target,
                     glossary=glossary,
                     dry_run=options.dry_run,
+                    cache_only=options.cache_only,
                     fail_fast=options.fail_fast,
                     chunk_limit=options.chunk_limit,
                     on_text_processed=on_text_processed,
@@ -298,10 +307,14 @@ def translate_epub(
                     raise
 
     if not options.dry_run:
-        if glossary:
-            report.glossary_usage.finalize_required_terms(glossary)
-        destination_path.parent.mkdir(parents=True, exist_ok=True)
-        _copy_epub_with_replacements(source_path, destination_path, replacements)
+        blocked = options.cache_only and options.require_full_cache and report.texts_missing > 0
+        if blocked:
+            report.output_written = False
+        else:
+            if glossary:
+                report.glossary_usage.finalize_required_terms(glossary)
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            _copy_epub_with_replacements(source_path, destination_path, replacements)
 
     return report
 
@@ -781,11 +794,13 @@ def _translate_opf_title(
         target=options.target,
         glossary=glossary,
         dry_run=options.dry_run,
+        cache_only=options.cache_only,
         chunk_limit=options.chunk_limit,
     )
     if on_review_text:
         on_review_text(title.text, result)
-    title.text = result.text
+    if not result.missing:
+        title.text = result.text
     report.record_text(result)
     _notify_text_processed(on_text_processed, _text_progress_status(result, options.dry_run))
     return ET.tostring(root, encoding="utf-8", xml_declaration=_has_xml_declaration(opf_content))
@@ -817,6 +832,8 @@ def _has_xml_declaration(content: bytes) -> bool:
 
 
 def _text_progress_status(result: TextTranslationResult, dry_run: bool) -> str:
+    if result.missing:
+        return "missing"
     if result.from_cache:
         return "cache"
     if dry_run:

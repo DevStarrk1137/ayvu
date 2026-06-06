@@ -179,6 +179,8 @@ class TranslationOptions:
     translate_metadata: bool = False
     translate_alt_text: bool = False
     chapter_selection: ChapterSelection | None = None
+    cache_only: bool = False
+    require_full_cache: bool = False
 
     @property
     def source(self) -> str:

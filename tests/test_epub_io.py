@@ -61,6 +61,15 @@ class PrefixTranslator:
         return f"PT:{text}"
 
 
+class RaisingTranslator:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+
+    def translate(self, text: str, source: str, target: str) -> str:
+        self.calls.append((text, source, target))
+        raise AssertionError("translator must not be called in cache-only mode")
+
+
 def _read_navigation_document(epub_path: Path) -> str:
     opf_archive_path = _get_opf_archive_path(epub_path)
     with ZipFile(epub_path) as source_epub:
@@ -191,6 +200,111 @@ def test_translate_epub_translates_minimal_generated_epub_without_mutating_input
     # The paragraph is translated as one block, keeping the inline link and its text.
     assert '<a href="chapter2.xhtml#answer">chapter two</a>' in chapter
     assert "../images/pixel.png" in chapter
+
+
+def test_translate_epub_cache_only_reuses_cache_without_calling_translator(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    cache_path = tmp_path / "cache.sqlite"
+    options = TranslationOptions(language_pair=LanguagePair(source="en", target="pt"))
+    with TranslationCache(cache_path) as cache:
+        first = translate_epub(
+            minimal_epub_path,
+            tmp_path / "first-pt.epub",
+            translator=PrefixTranslator(),
+            cache=cache,
+            options=options,
+        )
+
+    output_path = tmp_path / "cache-only-pt.epub"
+    raising = RaisingTranslator()
+    cache_only_options = TranslationOptions(
+        language_pair=LanguagePair(source="en", target="pt"),
+        cache_only=True,
+    )
+    with TranslationCache(cache_path) as cache:
+        report = translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=raising,
+            cache=cache,
+            options=cache_only_options,
+        )
+
+    assert output_path.exists()
+    assert report.output_written
+    assert report.texts_missing == 0
+    assert report.texts_translated == 0
+    assert report.texts_from_cache == first.texts_translated + first.texts_from_cache
+    assert raising.calls == []
+
+    with ZipFile(output_path) as output_epub:
+        names = output_epub.namelist()
+        chapter_name = next(name for name in names if name.endswith("text/chapter1.xhtml"))
+        chapter = output_epub.read(chapter_name).decode("utf-8")
+    assert "PT:Hello reader. Visit" in chapter
+
+
+def test_translate_epub_cache_only_writes_with_missing_texts_by_default(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    output_path = tmp_path / "cache-only-pt.epub"
+    raising = RaisingTranslator()
+    options = TranslationOptions(
+        language_pair=LanguagePair(source="en", target="pt"),
+        cache_only=True,
+    )
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        report = translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=raising,
+            cache=cache,
+            options=options,
+        )
+
+    assert output_path.exists()
+    assert report.output_written
+    assert report.texts_missing >= 4
+    assert report.texts_translated == 0
+    assert report.texts_from_cache == 0
+    assert len(report.missing_texts) == report.texts_missing
+    assert raising.calls == []
+
+    with ZipFile(output_path) as output_epub:
+        names = output_epub.namelist()
+        chapter_name = next(name for name in names if name.endswith("text/chapter1.xhtml"))
+        chapter = output_epub.read(chapter_name).decode("utf-8")
+    assert "Hello reader. Visit" in chapter
+    assert "PT:" not in chapter
+
+
+def test_translate_epub_cache_only_require_full_cache_blocks_output_when_missing(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    output_path = tmp_path / "cache-only-pt.epub"
+    raising = RaisingTranslator()
+    options = TranslationOptions(
+        language_pair=LanguagePair(source="en", target="pt"),
+        cache_only=True,
+        require_full_cache=True,
+    )
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        report = translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=raising,
+            cache=cache,
+            options=options,
+        )
+
+    assert not output_path.exists()
+    assert not report.output_written
+    assert report.texts_missing >= 4
+    assert raising.calls == []
 
 
 def test_translate_epub_collects_review_segments_with_document_metadata(

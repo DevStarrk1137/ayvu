@@ -9,12 +9,14 @@ def test_text_progress_counters_track_known_statuses():
     counters.record("translated")
     counters.record("cache")
     counters.record("dry_run")
+    counters.record("missing")
     counters.record("error")
 
-    assert counters.processed == 4
+    assert counters.processed == 5
     assert counters.new_count(dry_run=False) == 1
     assert counters.new_count(dry_run=True) == 1
     assert counters.cache == 1
+    assert counters.missing == 1
     assert counters.error == 1
 
 
@@ -41,6 +43,7 @@ def test_translation_progress_snapshot_tracks_partial_state():
     progress.chapter_started(1, 2, "chapter-one.xhtml")
     progress.text_processed("translated")
     progress.text_processed("cache")
+    progress.text_processed("missing")
     progress.chapter_done(1, 2, "chapter-one.xhtml", object())
     progress.chapter_started(2, 2, "chapter-two.xhtml")
 
@@ -49,6 +52,7 @@ def test_translation_progress_snapshot_tracks_partial_state():
     assert snapshot.chapters_processed == 1
     assert snapshot.total_chapters == 2
     assert snapshot.current_chapter == "chapter-two.xhtml"
-    assert snapshot.texts_processed == 2
+    assert snapshot.texts_processed == 3
     assert snapshot.texts_translated == 1
     assert snapshot.texts_from_cache == 1
+    assert snapshot.texts_missing == 1

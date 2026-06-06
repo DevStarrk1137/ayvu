@@ -96,6 +96,32 @@ def test_preflight_dry_run_skips_translator_probe(monkeypatch, tmp_path):
     assert translator.calls == []
 
 
+def test_preflight_cache_only_skips_route_resolution(monkeypatch, tmp_path):
+    translator = TranslatorWithLanguages(
+        (TranslatorLanguage(code="en", name="English", targets=("pt",)),)
+    )
+    monkeypatch.setattr("ayvu.preflight.create_translator", lambda *_args, **_kwargs: translator)
+    monkeypatch.setattr("ayvu.preflight.inspect_epub", lambda _path: object())
+
+    result = run_translation_preflight(
+        epub_path=tmp_path / "book.epub",
+        cache_path=tmp_path / "cache.sqlite",
+        glossary_path=None,
+        translator_name="libretranslate",
+        url="http://localhost:5000",
+        timeout=1.0,
+        retries=0,
+        language_pair=LanguagePair(source="en", target="pt"),
+        dry_run=False,
+        cache_only=True,
+    )
+
+    assert result.route is None
+    assert result.translator is translator
+    assert translator.translate_calls == []
+    assert translator.list_calls == 0
+
+
 def test_preflight_rejects_blank_language_pair(tmp_path):
     with pytest.raises(PreflightError) as error:
         run_translation_preflight(

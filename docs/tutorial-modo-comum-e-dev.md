@@ -456,6 +456,41 @@ uv run ayvu translate livro.epub \
   --dry-run
 ```
 
+### Reconstruir usando apenas o cache
+
+O modo `--cache-only` monta o EPUB só com o que já está no cache e nunca chama o
+tradutor (não precisa de servidor ativo). Trechos ausentes do cache ficam no
+idioma original e são contados como `Texts missing` no relatório.
+
+```bash
+uv run ayvu translate livro.epub \
+  --output teste.epub \
+  --source en \
+  --target pt \
+  --cache .cache/traducoes.sqlite \
+  --cache-only \
+  --missing-output faltantes.txt
+```
+
+Por padrão, o EPUB é gerado mesmo com cobertura parcial. Para gerar somente
+quando todos os trechos estiverem no cache, adicione `--require-full-cache`: se
+faltar algum, nada é escrito e o comando falha, mas o arquivo de faltantes ainda
+é gravado.
+
+```bash
+uv run ayvu translate livro.epub \
+  --output teste.epub \
+  --source en \
+  --target pt \
+  --cache .cache/traducoes.sqlite \
+  --cache-only \
+  --require-full-cache
+```
+
+Diferente da retomada (que chama o tradutor para os trechos pendentes e grava
+estado em `~/Documentos/Livros/Processando`), o cache-only nunca chama o tradutor
+e não cria estado de retomada.
+
 ### Extrair texto visível para Markdown
 
 ```bash

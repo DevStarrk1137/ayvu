@@ -456,6 +456,21 @@ def translate(
         help="Also translate the alt text of images. Text inside images (OCR) is out of scope.",
     ),
     chunk_limit: int = typer.Option(3000, "--chunk-limit", help="Maximum characters sent per request."),
+    cache_only: bool = typer.Option(
+        False,
+        "--cache-only",
+        help="Rebuild the EPUB using only cached translations; never call the translator.",
+    ),
+    require_full_cache: bool = typer.Option(
+        False,
+        "--require-full-cache",
+        help="With --cache-only, only write the EPUB when every text is in the cache.",
+    ),
+    missing_output: Optional[Path] = typer.Option(
+        None,
+        "--missing-output",
+        help="With --cache-only, path to save the original texts missing from the cache.",
+    ),
 ) -> None:
     """Translate EPUB visible text while preserving EPUB structure."""
     mode = ctx.obj.get("mode", UserMode.DEVELOPER)
@@ -466,6 +481,12 @@ def translate(
         output=output,
         output_dir=output_dir,
         review_output=review_output,
+        mode=mode,
+    )
+    _validate_cache_only_options(
+        cache_only=cache_only,
+        require_full_cache=require_full_cache,
+        missing_output=missing_output,
         mode=mode,
     )
     resolved_output_dir = _resolve_translation_output_dir(output_dir, mode=mode)
@@ -494,6 +515,8 @@ def translate(
             config=config,
             translate_metadata=translate_metadata,
             translate_alt_text=translate_alt_text,
+            cache_only=cache_only,
+            require_full_cache=require_full_cache,
         )
         return
 
@@ -520,6 +543,9 @@ def translate(
         config=config,
         translate_metadata=translate_metadata,
         translate_alt_text=translate_alt_text,
+        cache_only=cache_only,
+        require_full_cache=require_full_cache,
+        missing_output=missing_output,
         confirm_output_location=resolved_output_dir is None,
     )
 
@@ -875,6 +901,32 @@ def _validate_translate_command_options(
         raise typer.Exit(code=1)
 
 
+def _validate_cache_only_options(
+    cache_only: bool,
+    require_full_cache: bool,
+    missing_output: Path | None,
+    mode: UserMode,
+) -> None:
+    if cache_only:
+        return
+
+    if require_full_cache:
+        _print_expected_error(
+            "--require-full-cache exige --cache-only.",
+            "Adicione --cache-only para reconstruir apenas com o cache, ou remova --require-full-cache.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+    if missing_output is not None:
+        _print_expected_error(
+            "--missing-output exige --cache-only.",
+            "Adicione --cache-only para listar os textos ausentes do cache, ou remova --missing-output.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+
 def _resolve_translation_output_dir(output_dir: Path | None, mode: UserMode) -> Path | None:
     if output_dir is None:
         return None
@@ -913,6 +965,9 @@ def _run_translation(
     config: AyvuConfig | None = None,
     translate_metadata: bool = False,
     translate_alt_text: bool = False,
+    cache_only: bool = False,
+    require_full_cache: bool = False,
+    missing_output: Path | None = None,
     output_dir: Path | None = None,
     auto_save_markdown_report: bool = False,
     report_dir: Path | None = None,
@@ -939,6 +994,8 @@ def _run_translation(
         translate_metadata=translate_metadata,
         translate_alt_text=translate_alt_text,
         chapter_selection=chapter_selection,
+        cache_only=cache_only,
+        require_full_cache=require_full_cache,
     )
     if chapter_selection is not None:
         selected_chapters = _resolve_chapter_selection_for_display(
@@ -977,6 +1034,7 @@ def _run_translation(
             retries=retries,
             language_pair=language_pair,
             dry_run=dry_run,
+            cache_only=cache_only,
         )
     except PreflightError as exc:
         _print_expected_error(exc.summary, exc.next_step, mode, detail=exc.detail)
@@ -986,7 +1044,7 @@ def _run_translation(
 
     resume_store: ResumeStateStore | None = None
     resume_state: TranslationResumeState | None = None
-    if not dry_run:
+    if not dry_run and not cache_only:
         resume_store, resume_state = _save_running_resume_state(
             epub_path=epub_path,
             output_path=output_path,
@@ -1040,7 +1098,18 @@ def _run_translation(
         _write_review_output(review_output_path, review_segments, overwrite=overwrite, mode=mode)
         report.review_output_path = review_output_path
 
-    validation = None if dry_run else _validate_with_progress(output_path)
+    if cache_only and report.missing_texts:
+        _save_missing_texts(
+            report,
+            missing_output=missing_output,
+            overwrite=overwrite,
+            directory=report_dir,
+            mode=mode,
+        )
+
+    validation = (
+        _validate_with_progress(output_path) if report.output_written and not dry_run else None
+    )
     validation_warnings = validation.warnings if validation else []
 
     _print_report(report, dry_run, validation_warnings)
@@ -1055,6 +1124,10 @@ def _run_translation(
         console.print(f"[green]Report saved to:[/green] {markdown_report_path}")
     else:
         _offer_markdown_report(report, dry_run, validation_warnings, mode=mode)
+
+    if cache_only and require_full_cache and not report.output_written:
+        _print_cache_coverage_blocked(report, mode)
+        raise typer.Exit(code=1)
 
     if validation is not None:
         if validation.ok:
@@ -1095,6 +1168,8 @@ def _run_batch_translation(
     config: AyvuConfig,
     translate_metadata: bool = False,
     translate_alt_text: bool = False,
+    cache_only: bool = False,
+    require_full_cache: bool = False,
 ) -> None:
     resolved_output_dir = output_dir or _translated_books_dir(config)
     report_dir = _reports_dir(config)
@@ -1133,6 +1208,8 @@ def _run_batch_translation(
                 config=config,
                 translate_metadata=translate_metadata,
                 translate_alt_text=translate_alt_text,
+                cache_only=cache_only,
+                require_full_cache=require_full_cache,
                 auto_save_markdown_report=True,
                 report_dir=report_dir,
                 confirm_output_location=False,
@@ -1488,6 +1565,8 @@ def _print_report(
     table.add_row("Chapters processed", str(report.chapters_processed))
     table.add_row("Texts translated", str(report.texts_translated))
     table.add_row("Texts from cache", str(report.texts_from_cache))
+    if report.texts_missing:
+        table.add_row("Texts missing", str(report.texts_missing))
     if report.alt_texts_translated:
         table.add_row("Alt texts translated", str(report.alt_texts_translated))
     table.add_row("Errors", str(len(report.errors)))
@@ -1602,6 +1681,7 @@ def _print_interrupted_translation(
     table.add_row("Texts translated", str(snapshot.texts_translated))
     table.add_row("Texts from cache", str(snapshot.texts_from_cache))
     table.add_row("Texts dry-run", str(snapshot.texts_dry_run))
+    table.add_row("Texts missing", str(snapshot.texts_missing))
     table.add_row("Text errors", str(snapshot.text_errors))
     table.add_row("Current chapter", snapshot.current_chapter or "-")
     console.print(table)
@@ -2579,6 +2659,76 @@ def _save_markdown_report(
     return path
 
 
+def _save_missing_texts(
+    report: TranslationReport,
+    missing_output: Path | None,
+    overwrite: bool,
+    directory: Path | None,
+    mode: UserMode,
+) -> None:
+    if missing_output is not None:
+        path = missing_output.expanduser()
+        if path.exists() and not overwrite:
+            _print_expected_error(
+                "Arquivo de textos ausentes já existe.",
+                "Use --overwrite para substituí-lo ou escolha outro caminho em --missing-output.",
+                mode,
+                detail=f"Missing output: {path}",
+            )
+            raise typer.Exit(code=1)
+    else:
+        directory = directory or _default_reports_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = _next_available_report_path(directory, _missing_filename_stem(report), suffix=".txt")
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_render_missing_texts(report), encoding="utf-8")
+    except OSError as exc:
+        _print_expected_error(
+            "Não foi possível salvar o arquivo de textos ausentes.",
+            "Escolha um caminho gravável para --missing-output e tente novamente.",
+            mode,
+            detail=str(exc),
+        )
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"[green]Missing texts saved to:[/green] {path}")
+
+
+def _render_missing_texts(report: TranslationReport) -> str:
+    lines = [
+        "# Ayvu cache-only missing texts",
+        f"# Original EPUB: {_display_optional_path(report.input_path)}",
+        f"# Source language: {report.detected_language or '-'}",
+        f"# Target language: {report.target_language or '-'}",
+        f"# Missing texts: {len(report.missing_texts)}",
+        "",
+    ]
+    for index, text in enumerate(report.missing_texts, start=1):
+        lines.append(f"[{index}]")
+        lines.append(text)
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _missing_filename_stem(report: TranslationReport) -> str:
+    source = _safe_filename_part(report.input_path.stem if report.input_path else "translation")
+    target = _safe_filename_part(report.target_language or "translated")
+    return f"{source}-{target}-missing"
+
+
+def _print_cache_coverage_blocked(report: TranslationReport, mode: UserMode) -> None:
+    _print_expected_error(
+        f"Cache incompleto: {report.texts_missing} texto(s) sem tradução no cache.",
+        (
+            "Remova --require-full-cache para gerar mesmo assim, traduza o EPUB normalmente "
+            "para preencher o cache, ou consulte o arquivo de textos ausentes."
+        ),
+        mode,
+    )
+
+
 def _render_markdown_report(
     report: TranslationReport,
     dry_run: bool,
@@ -2598,6 +2748,8 @@ def _render_markdown_report(
     ]
     if report.review_output_path is not None:
         lines.insert(6, f"- Review file: {report.review_output_path}")
+    if report.texts_missing:
+        lines.append(f"- Texts missing: {report.texts_missing}")
     if report.alt_texts_translated:
         lines.append(f"- Alt texts translated: {report.alt_texts_translated}")
     lines.extend([
@@ -2647,11 +2799,11 @@ def _default_reports_dir() -> Path:
     return _reports_dir(_load_existing_config_or_default())
 
 
-def _next_available_report_path(directory: Path, stem: str) -> Path:
-    path = directory / f"{stem}.md"
+def _next_available_report_path(directory: Path, stem: str, suffix: str = ".md") -> Path:
+    path = directory / f"{stem}{suffix}"
     index = 2
     while path.exists():
-        path = directory / f"{stem}-{index}.md"
+        path = directory / f"{stem}-{index}{suffix}"
         index += 1
     return path
 
@@ -2684,6 +2836,8 @@ def _display_optional_path(path: Path | None) -> str:
 def _report_output_value(report: TranslationReport, dry_run: bool) -> str:
     if dry_run:
         return "(dry run, no file written)"
+    if not report.output_written:
+        return "(cache incompleto, nenhum arquivo gerado)"
     return _display_optional_path(report.output_path)
 
 
