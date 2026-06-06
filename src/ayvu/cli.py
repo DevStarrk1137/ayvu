@@ -52,6 +52,7 @@ from .glossary import (
     load_glossary,
     save_glossary,
 )
+from .html_translate import HtmlTranslationStats
 from .library import LibraryBook, LibraryOpenError, open_library_epub, scan_library
 from .preflight import PreflightError, run_translation_preflight
 from .resume import (
@@ -548,6 +549,36 @@ def translate(
         missing_output=missing_output,
         confirm_output_location=resolved_output_dir is None,
     )
+
+
+@app.command()
+def resume(
+    ctx: typer.Context,
+    epub_path: Optional[Path] = typer.Argument(
+        None,
+        help="EPUB to resume. If omitted, resumes the only translation in progress.",
+    ),
+    target: Optional[str] = typer.Option(
+        None,
+        "--target",
+        help="Target language, to choose when several translations are in progress.",
+    ),
+) -> None:
+    """Resume a translation in progress from its saved checkpoint."""
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
+    config = _load_existing_config_or_default()
+    store = ResumeStateStore(_processing_dir(config))
+    scan = store.scan()
+
+    state = _select_resume_state(scan.running, epub_path, target, mode=mode)
+    if state is None:
+        raise typer.Exit(code=1)
+
+    console.print(
+        f"[green]Resuming translation:[/green] {state.input_path.name} -> {state.output_path.name}"
+    )
+    _print_resume_checkpoint(state)
+    _resume_translation(state, mode=mode)
 
 
 def _print_expected_error(summary: str, next_step: str, mode: UserMode, detail: str = "") -> None:
@@ -1072,6 +1103,27 @@ def _run_translation(
         ) as progress:
             progress_view = TranslationProgress(progress, dry_run=dry_run)
 
+            def on_chapter_start(index: int, total: int, name: str) -> None:
+                nonlocal resume_state
+                progress_view.chapter_started(index, total, name)
+                if resume_store and resume_state:
+                    resume_state = resume_state.start_chapter(name, total)
+                    _save_resume_state(resume_store, resume_state)
+
+            def on_chapter_done(index: int, total: int, name: str, stats: HtmlTranslationStats) -> None:
+                nonlocal resume_state
+                progress_view.chapter_done(index, total, name, stats)
+                if resume_store and resume_state:
+                    ok = not stats.errors and stats.missing == 0
+                    failed = len(stats.errors) + stats.missing
+                    resume_state = resume_state.record_chapter(
+                        name=name,
+                        total=total,
+                        ok=ok,
+                        failed_segment_count=failed,
+                    )
+                    _save_resume_state(resume_store, resume_state)
+
             with TranslationCache(cache_path) as cache:
                 report = translate_epub(
                     epub_path,
@@ -1080,8 +1132,8 @@ def _run_translation(
                     cache=cache,
                     options=translation_options,
                     glossary=preflight.glossary,
-                    on_chapter_start=progress_view.chapter_started,
-                    on_chapter_done=progress_view.chapter_done,
+                    on_chapter_start=on_chapter_start,
+                    on_chapter_done=on_chapter_done,
                     on_text_processed=progress_view.text_processed,
                     review_segments=review_segments,
                 )
@@ -1669,6 +1721,8 @@ def _print_interrupted_translation(
     console.print("Cached translations saved before the interruption can be reused with the same --cache path.")
     console.print(f"Cache path: {cache_path}")
     console.print(_interrupted_output_message(output_path, dry_run))
+    if not dry_run:
+        console.print("Run 'ayvu resume' to continue this translation from the saved checkpoint.")
 
     if snapshot is None:
         return
@@ -2517,6 +2571,7 @@ def _offer_detected_translation_resume(states: tuple[TranslationResumeState, ...
         return False
 
     state = states[0]
+    _print_resume_checkpoint(state)
     if not typer.confirm("Continue detected translation?", default=False):
         console.print("Detected translation was not resumed. Processing files were left unchanged.")
         return False
@@ -2542,7 +2597,7 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
             dry_run=False,
             fail_fast=state.fail_fast,
             chapter_selection=_parse_chapter_selection(state.chapter_selection, mode=mode),
-            overwrite=state.overwrite,
+            overwrite=True,
             timeout=state.timeout,
             retries=state.retries,
             chunk_limit=state.chunk_limit,
@@ -2555,6 +2610,75 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
             "Não foi possível retomar a tradução detectada. Verifique a mensagem acima e reinicie a tradução se necessário."
         )
         raise
+
+
+def _select_resume_state(
+    running: tuple[TranslationResumeState, ...],
+    epub_path: Path | None,
+    target: str | None,
+    mode: UserMode,
+) -> TranslationResumeState | None:
+    candidates = list(running)
+    if epub_path is not None:
+        resolved = epub_path.expanduser().resolve()
+        candidates = [state for state in candidates if state.input_path == resolved]
+    if target is not None:
+        candidates = [state for state in candidates if state.target == target]
+
+    if not candidates:
+        _print_expected_error(
+            "No translation in progress was found to resume.",
+            "Start a translation with 'ayvu translate <epub>' or check the processing folder.",
+            mode,
+        )
+        return None
+
+    if len(candidates) == 1:
+        return candidates[0]
+
+    _print_running_resume_states(tuple(candidates))
+    _print_expected_error(
+        "Several translations in progress match the request.",
+        "Specify the EPUB and --target to choose which one to resume.",
+        mode,
+    )
+    return None
+
+
+def _print_resume_checkpoint(state: TranslationResumeState) -> None:
+    if not _has_checkpoint_progress(state):
+        return
+
+    table = Table(title="Resume checkpoint")
+    table.add_column("Metric")
+    table.add_column("Value")
+    table.add_row("Chapters completed", _checkpoint_chapter_value(state))
+    if state.current_chapter:
+        table.add_row("Current chapter", state.current_chapter)
+    if state.failed_chapters:
+        table.add_row("Chapters with failures", str(len(state.failed_chapters)))
+        table.add_row("Failed segments", str(state.failed_segment_count))
+    table.add_row("Last update", state.updated_at)
+    console.print(table)
+    console.print(
+        "Cached translations are reused; only segments still missing from the cache are retried."
+    )
+
+
+def _has_checkpoint_progress(state: TranslationResumeState) -> bool:
+    return bool(
+        state.completed_chapters
+        or state.failed_chapters
+        or state.current_chapter
+        or state.total_chapters
+    )
+
+
+def _checkpoint_chapter_value(state: TranslationResumeState) -> str:
+    done = len(state.completed_chapters)
+    if state.total_chapters is None:
+        return str(done)
+    return f"{done}/{state.total_chapters}"
 
 
 def _print_running_resume_states(states: tuple[TranslationResumeState, ...]) -> None:

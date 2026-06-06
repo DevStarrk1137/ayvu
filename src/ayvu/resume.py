@@ -57,6 +57,11 @@ class TranslationResumeState:
     chapter_selection: str | None
     created_at: str
     updated_at: str
+    total_chapters: int | None = None
+    current_chapter: str | None = None
+    completed_chapters: tuple[str, ...] = ()
+    failed_chapters: tuple[str, ...] = ()
+    failed_segment_count: int = 0
 
     @classmethod
     def create(
@@ -130,6 +135,11 @@ class TranslationResumeState:
             chapter_selection=_optional_text(data, "chapter_selection"),
             created_at=_required_text(data, "created_at"),
             updated_at=_required_text(data, "updated_at"),
+            total_chapters=_optional_int_or_none(data, "total_chapters"),
+            current_chapter=_optional_text(data, "current_chapter"),
+            completed_chapters=_optional_str_tuple(data, "completed_chapters"),
+            failed_chapters=_optional_str_tuple(data, "failed_chapters"),
+            failed_segment_count=_optional_int_default(data, "failed_segment_count", default=0),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -141,6 +151,39 @@ class TranslationResumeState:
 
     def mark_completed(self) -> "TranslationResumeState":
         return replace(self, status=COMPLETED_STATUS, updated_at=_utc_now())
+
+    def start_chapter(self, name: str, total: int) -> "TranslationResumeState":
+        return replace(
+            self,
+            current_chapter=name,
+            total_chapters=total,
+            updated_at=_utc_now(),
+        )
+
+    def record_chapter(
+        self,
+        name: str,
+        total: int,
+        ok: bool,
+        failed_segment_count: int = 0,
+    ) -> "TranslationResumeState":
+        completed = self.completed_chapters
+        failed = self.failed_chapters
+        failures = self.failed_segment_count
+        if ok:
+            completed = completed + (name,)
+        else:
+            failed = failed + (name,)
+            failures = failures + failed_segment_count
+        return replace(
+            self,
+            total_chapters=total,
+            current_chapter=None,
+            completed_chapters=completed,
+            failed_chapters=failed,
+            failed_segment_count=failures,
+            updated_at=_utc_now(),
+        )
 
 
 @dataclass(frozen=True)
@@ -231,6 +274,35 @@ def _optional_text(data: dict[str, object], key: str) -> str | None:
     if not isinstance(value, str) or not value.strip():
         raise ResumeStateError(f"Resume state field {key} must be a non-empty string or null.")
     return value
+
+
+def _optional_int_or_none(data: dict[str, object], key: str) -> int | None:
+    if key not in data or data[key] is None:
+        return None
+    value = data[key]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ResumeStateError(f"Resume state field {key} must be an integer or null.")
+    return value
+
+
+def _optional_int_default(data: dict[str, object], key: str, default: int) -> int:
+    if key not in data:
+        return default
+    value = data[key]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ResumeStateError(f"Resume state field {key} must be an integer.")
+    return value
+
+
+def _optional_str_tuple(data: dict[str, object], key: str) -> tuple[str, ...]:
+    if key not in data:
+        return ()
+    value = data[key]
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and item.strip() for item in value
+    ):
+        raise ResumeStateError(f"Resume state field {key} must be a list of non-empty strings.")
+    return tuple(value)
 
 
 def _required_number(data: dict[str, object], key: str) -> float:

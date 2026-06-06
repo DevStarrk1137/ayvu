@@ -132,6 +132,85 @@ def test_resume_state_load_defaults_missing_chapter_selection_to_none(tmp_path):
     assert loaded.chapter_selection is None
 
 
+def test_resume_state_starts_with_empty_progress(tmp_path):
+    state = make_state(tmp_path)
+
+    assert state.total_chapters is None
+    assert state.current_chapter is None
+    assert state.completed_chapters == ()
+    assert state.failed_chapters == ()
+    assert state.failed_segment_count == 0
+
+
+def test_resume_state_start_chapter_sets_current_and_total(tmp_path):
+    state = make_state(tmp_path)
+
+    started = state.start_chapter("chapter-one.xhtml", 12)
+
+    assert started.current_chapter == "chapter-one.xhtml"
+    assert started.total_chapters == 12
+    assert started.completed_chapters == ()
+
+
+def test_resume_state_record_chapter_accumulates_completed_and_failed(tmp_path):
+    state = make_state(tmp_path).start_chapter("chapter-one.xhtml", 3)
+
+    after_first = state.record_chapter("chapter-one.xhtml", 3, ok=True)
+    after_second = after_first.record_chapter(
+        "chapter-two.xhtml", 3, ok=False, failed_segment_count=2
+    )
+
+    assert after_first.completed_chapters == ("chapter-one.xhtml",)
+    assert after_first.current_chapter is None
+    assert after_second.completed_chapters == ("chapter-one.xhtml",)
+    assert after_second.failed_chapters == ("chapter-two.xhtml",)
+    assert after_second.failed_segment_count == 2
+    assert after_second.total_chapters == 3
+
+
+def test_resume_state_progress_round_trip(tmp_path):
+    store = ResumeStateStore(tmp_path / "Processando")
+    state = (
+        make_state(tmp_path)
+        .record_chapter("chapter-one.xhtml", 4, ok=True)
+        .record_chapter("chapter-two.xhtml", 4, ok=False, failed_segment_count=3)
+        .start_chapter("chapter-three.xhtml", 4)
+    )
+
+    path = store.save(state)
+    loaded = store.load(path)
+
+    assert loaded == state
+    assert loaded.completed_chapters == ("chapter-one.xhtml",)
+    assert loaded.failed_chapters == ("chapter-two.xhtml",)
+    assert loaded.failed_segment_count == 3
+    assert loaded.current_chapter == "chapter-three.xhtml"
+    assert loaded.total_chapters == 4
+
+
+def test_resume_state_load_defaults_missing_progress_fields(tmp_path):
+    path = tmp_path / "old.ayvu-state.json"
+    data = make_state(tmp_path).to_dict()
+    for key in (
+        "total_chapters",
+        "current_chapter",
+        "completed_chapters",
+        "failed_chapters",
+        "failed_segment_count",
+    ):
+        data.pop(key, None)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    store = ResumeStateStore(tmp_path)
+
+    loaded = store.load(path)
+
+    assert loaded.total_chapters is None
+    assert loaded.current_chapter is None
+    assert loaded.completed_chapters == ()
+    assert loaded.failed_chapters == ()
+    assert loaded.failed_segment_count == 0
+
+
 def test_resume_state_scan_finds_running_and_invalid_states(tmp_path):
     store = ResumeStateStore(tmp_path / "Processando")
     running = make_state(tmp_path, "running-book")
