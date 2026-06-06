@@ -131,6 +131,28 @@ Traduzir usando um perfil salvo na configuração:
 uv run ayvu translate livro.epub --profile technical
 ```
 
+Traduzir vários EPUBs em uma única execução:
+
+```bash
+uv run ayvu translate livro-1.epub livro-2.epub livro-3.epub \
+  --target pt \
+  --output-dir traduzidos/ \
+  --continue-on-error
+```
+
+No batch, cada livro gera um EPUB separado com o padrão
+`<nome>-<idioma>.epub` dentro de `--output-dir`. Se `--output-dir` não for
+informado, o Ayvu usa a pasta de traduzidos configurada. O comando para no
+primeiro erro por padrão; com `--continue-on-error`, continua nos livros
+restantes e termina com código 1 se algum item falhar. Saídas existentes não
+são sobrescritas sem confirmação no modo comum ou sem `--overwrite` no modo
+desenvolvedor.
+
+As opções `--output` e `--review-output` são exclusivas do fluxo de um único
+EPUB, porque um caminho único de saída ou CSV não é suficiente para representar
+vários livros. O batch salva automaticamente um relatório Markdown separado por
+livro na pasta de relatórios configurada.
+
 Se `--source` não for informado, o Ayvu lê o idioma do EPUB nos metadados, exibe o
 plano da tradução (`From`/`To`) antes de começar e usa o idioma detectado como
 origem. Quando o metadado estiver ausente ou inválido, o Ayvu avisa e usa `en`
@@ -310,7 +332,7 @@ uv run ayvu translate livro.epub \
   --dry-run
 ```
 
-Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, arquivo de revisão quando solicitado, capítulos processados, textos traduzidos, cache, erros e resumo do uso do glossário quando houver glossário configurado. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`.
+Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, arquivo de revisão quando solicitado, capítulos processados, textos traduzidos, cache, erros e resumo do uso do glossário quando houver glossário configurado. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`. Em traduções em batch, o Ayvu salva automaticamente um relatório Markdown separado para cada livro.
 
 Extrair texto visível para Markdown:
 
