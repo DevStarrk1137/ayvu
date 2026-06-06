@@ -483,6 +483,15 @@ Quando `--review-output` é informado, a CLI coleta os segmentos emitidos pelo f
 
 O comando `apply-review` fecha o ciclo: percorre o EPUB original com a mesma lógica de runs da tradução, casa cada segmento ao CSV por `document_path` e índice por documento, valida que o texto original ainda corresponde e aplica as traduções revisadas em um novo EPUB, preservando o original. Segmentos sem revisão ficam no idioma de origem; ausentes, inconsistentes, duplicados e documentos desconhecidos entram no relatório. Como o CSV guarda só o texto visível, formatação inline dentro de um parágrafo revisado vira texto plano, mantendo a estrutura de blocos do EPUB.
 
+Quando vários EPUBs são informados no comando `translate`, a CLI entra em modo
+batch e chama o mesmo fluxo de tradução para cada livro. A saída de cada item é
+calculada em `--output-dir` ou na pasta de traduzidos configurada, usando o
+padrão `<nome>-<idioma>.epub`. `--output` e `--review-output` ficam restritos ao
+fluxo de um único EPUB para evitar caminhos ambíguos. O batch para no primeiro
+erro por padrão; com `--continue-on-error`, registra a falha, processa os itens
+restantes e termina com código 1 se qualquer livro falhar. Cada item salva um
+relatório Markdown próprio na pasta de relatórios configurada.
+
 No modo comum, o Ayvu também oferece salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`, sem sobrescrever relatórios anteriores. O relatório Markdown repete o resumo de glossário e inclui seções com termos aplicados e avisos quando existirem.
 
 ## 16. Bug crítico: EPUB com tela branca

@@ -328,6 +328,30 @@ os demais atributos; imagens decorativas (`alt=""`) são ignoradas. O relatório
 mostra a quantidade de textos alternativos traduzidos. Ler o texto que está
 dentro da imagem (OCR) continua fora do escopo.
 
+### Traduzir vários EPUBs em batch
+
+```bash
+uv run ayvu translate livro-1.epub livro-2.epub livro-3.epub \
+  --source en \
+  --target pt \
+  --output-dir traduzidos/ \
+  --continue-on-error
+```
+
+Quando mais de um EPUB é informado, o Ayvu calcula uma saída por livro usando o
+padrão `<nome>-<idioma>.epub` dentro de `--output-dir`. Sem `--output-dir`, usa a
+pasta de traduzidos configurada. O batch não aceita `--output` nem
+`--review-output`, pois essas opções apontam para um único arquivo.
+
+Por padrão, o comando para no primeiro livro que falhar. Com
+`--continue-on-error`, os próximos EPUBs continuam sendo processados, mas a
+execução termina com código 1 se qualquer item falhar. Saídas existentes seguem
+a mesma regra do fluxo individual: use `--overwrite` para substituir no modo
+desenvolvedor, ou confirme a substituição quando estiver no modo comum.
+
+Cada item do batch mostra seu relatório no terminal e salva um relatório
+Markdown separado na pasta de relatórios configurada.
+
 ### Exportar CSV para revisão externa
 
 ```bash

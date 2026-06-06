@@ -62,6 +62,9 @@ lancadas e secoes versionadas quando uma release for publicada.
   validando que cada segmento ainda corresponde ao EPUB original, aplicando as
   traducoes revisadas sem alterar o original e relatando trechos sem revisao,
   ausentes, inconsistentes, duplicados ou de documentos desconhecidos.
+- Traducao em batch no comando `translate`, aceitando multiplos EPUBs,
+  `--output-dir`, relatorios Markdown por livro e `--continue-on-error` para
+  seguir processando apos falhas.
 
 ### Atualizado
 

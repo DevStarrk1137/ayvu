@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import NoReturn, Optional
 
@@ -93,6 +93,22 @@ PROFILE_NO_PROFILE_OPTION = "0"
 EXISTING_OUTPUT_OVERWRITE_OPTION = "1"
 EXISTING_OUTPUT_RENAME_OPTION = "2"
 EXISTING_OUTPUT_CANCEL_OPTION = "0"
+
+
+@dataclass(frozen=True)
+class TranslationRunResult:
+    report: TranslationReport
+    validation_warnings: list[str]
+    markdown_report_path: Path | None = None
+
+
+@dataclass(frozen=True)
+class BatchTranslationResult:
+    epub_path: Path
+    succeeded: bool
+    output_path: Path | None = None
+    report_path: Path | None = None
+    detail: str = ""
 
 
 @app.callback(invoke_without_command=True)
@@ -214,12 +230,25 @@ def languages(
 @app.command()
 def translate(
     ctx: typer.Context,
-    epub_path: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
+    epub_paths: list[Path] = typer.Argument(
+        ...,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="One or more input EPUB files.",
+    ),
     output: Optional[Path] = typer.Option(
         None,
         "--output",
         "-o",
         help="Output EPUB path. Defaults to <input-stem>-<target>.epub.",
+    ),
+    output_dir: Optional[Path] = typer.Option(
+        None,
+        "--output-dir",
+        help="Directory for translated EPUBs. Defaults to the translated books folder.",
+        file_okay=False,
+        dir_okay=True,
     ),
     review_output: Optional[Path] = typer.Option(
         None,
@@ -247,6 +276,11 @@ def translate(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Process without writing translated EPUB."),
     fail_fast: bool = typer.Option(False, "--fail-fast", help="Stop at the first chapter/text error."),
+    continue_on_error: bool = typer.Option(
+        False,
+        "--continue-on-error",
+        help="Continue translating remaining EPUBs after a batch item fails.",
+    ),
     overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing an existing output file."),
     timeout: float = typer.Option(30.0, "--timeout", help="Translator HTTP timeout in seconds."),
     retries: int = typer.Option(2, "--retries", help="Simple HTTP retry count."),
@@ -265,9 +299,45 @@ def translate(
     """Translate EPUB visible text while preserving EPUB structure."""
     mode = ctx.obj.get("mode", UserMode.DEVELOPER)
     config = _load_existing_config_or_default()
-    _run_translation(
-        epub_path=epub_path,
+    epub_list = list(epub_paths)
+    _validate_translate_command_options(
+        epub_paths=epub_list,
         output=output,
+        output_dir=output_dir,
+        review_output=review_output,
+        mode=mode,
+    )
+    resolved_output_dir = _resolve_translation_output_dir(output_dir, mode=mode)
+
+    if len(epub_list) > 1:
+        _run_batch_translation(
+            epub_paths=epub_list,
+            output_dir=resolved_output_dir,
+            source=source,
+            target=target,
+            translator_name=translator_name,
+            url=url,
+            cache_path=cache_path,
+            glossary_path=glossary_path,
+            profile_name=profile_name,
+            dry_run=dry_run,
+            fail_fast=fail_fast,
+            continue_on_error=continue_on_error,
+            overwrite=overwrite,
+            timeout=timeout,
+            retries=retries,
+            chunk_limit=chunk_limit,
+            mode=mode,
+            config=config,
+            translate_metadata=translate_metadata,
+            translate_alt_text=translate_alt_text,
+        )
+        return
+
+    _run_translation(
+        epub_path=epub_list[0],
+        output=output,
+        output_dir=resolved_output_dir,
         review_output=review_output,
         source=source,
         target=target,
@@ -286,6 +356,7 @@ def translate(
         config=config,
         translate_metadata=translate_metadata,
         translate_alt_text=translate_alt_text,
+        confirm_output_location=resolved_output_dir is None,
     )
 
 
@@ -417,6 +488,65 @@ def _resolve_glossary_path(
     return default_glossaries_dir() / profile_glossary
 
 
+def _validate_translate_command_options(
+    epub_paths: list[Path],
+    output: Path | None,
+    output_dir: Path | None,
+    review_output: Path | None,
+    mode: UserMode,
+) -> None:
+    if not epub_paths:
+        _print_expected_error(
+            "Nenhum EPUB informado para tradução.",
+            "Informe pelo menos um arquivo .epub no comando translate.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+    if output is not None and output_dir is not None:
+        _print_expected_error(
+            "Opções de saída incompatíveis.",
+            "Use --output para um EPUB específico ou --output-dir para uma pasta de saída, não ambos.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+    if len(epub_paths) == 1:
+        return
+
+    if output is not None:
+        _print_expected_error(
+            "Não é possível usar --output com múltiplos EPUBs.",
+            "Use --output-dir para escolher a pasta do batch, ou traduza um EPUB por vez com --output.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+    if review_output is not None:
+        _print_expected_error(
+            "Não é possível usar --review-output com múltiplos EPUBs.",
+            "Gere arquivos de revisão traduzindo um EPUB por vez.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+
+def _resolve_translation_output_dir(output_dir: Path | None, mode: UserMode) -> Path | None:
+    if output_dir is None:
+        return None
+
+    path = output_dir.expanduser()
+    if path.exists() and not path.is_dir():
+        _print_expected_error(
+            "A pasta de saída informada não é um diretório.",
+            "Escolha um diretório em --output-dir ou remova a opção para usar o padrão.",
+            mode,
+            detail=f"Output directory: {path}",
+        )
+        raise typer.Exit(code=1)
+    return path
+
+
 def _run_translation(
     epub_path: Path,
     output: Path | None,
@@ -438,7 +568,11 @@ def _run_translation(
     config: AyvuConfig | None = None,
     translate_metadata: bool = False,
     translate_alt_text: bool = False,
-) -> None:
+    output_dir: Path | None = None,
+    auto_save_markdown_report: bool = False,
+    report_dir: Path | None = None,
+    confirm_output_location: bool = True,
+) -> TranslationRunResult:
     config = config or _load_existing_config_or_default()
     resolved_profile_name, profile = _resolve_requested_profile(config, profile_name, mode=mode)
     resolved_target = _resolve_target_language(target, profile)
@@ -465,9 +599,10 @@ def _run_translation(
         output,
         language_pair,
         dry_run=dry_run,
-        default_dir=_translated_books_dir(config),
+        default_dir=output_dir or _translated_books_dir(config),
     )
-    output_plan = _confirm_default_output_location(output_plan, epub_path, mode=mode)
+    if confirm_output_location:
+        output_plan = _confirm_default_output_location(output_plan, epub_path, mode=mode)
     output_plan = _resolve_existing_output_conflict(output_plan, overwrite=overwrite, mode=mode)
     output_path = output_plan.path
     review_output_path = _resolve_review_output_path(
@@ -555,7 +690,17 @@ def _run_translation(
     validation_warnings = validation.warnings if validation else []
 
     _print_report(report, dry_run, validation_warnings)
-    _offer_markdown_report(report, dry_run, validation_warnings, mode=mode)
+    markdown_report_path = None
+    if auto_save_markdown_report:
+        markdown_report_path = _save_markdown_report(
+            report,
+            dry_run,
+            validation_warnings,
+            directory=report_dir,
+        )
+        console.print(f"[green]Report saved to:[/green] {markdown_report_path}")
+    else:
+        _offer_markdown_report(report, dry_run, validation_warnings, mode=mode)
 
     if validation is not None:
         if validation.ok:
@@ -566,6 +711,151 @@ def _run_translation(
                 _mark_resume_state_completed(resume_store, resume_state)
         else:
             raise typer.Exit(code=1)
+
+    return TranslationRunResult(
+        report=report,
+        validation_warnings=validation_warnings,
+        markdown_report_path=markdown_report_path,
+    )
+
+
+def _run_batch_translation(
+    epub_paths: list[Path],
+    output_dir: Path | None,
+    source: str | None,
+    target: str | None,
+    translator_name: str,
+    url: str,
+    cache_path: Path,
+    glossary_path: Path | None,
+    profile_name: str | None,
+    dry_run: bool,
+    fail_fast: bool,
+    continue_on_error: bool,
+    overwrite: bool,
+    timeout: float,
+    retries: int,
+    chunk_limit: int,
+    mode: UserMode,
+    config: AyvuConfig,
+    translate_metadata: bool = False,
+    translate_alt_text: bool = False,
+) -> None:
+    resolved_output_dir = output_dir or _translated_books_dir(config)
+    report_dir = _reports_dir(config)
+    _print_batch_plan(
+        epub_paths=epub_paths,
+        output_dir=resolved_output_dir,
+        report_dir=report_dir,
+        continue_on_error=continue_on_error,
+    )
+
+    results: list[BatchTranslationResult] = []
+    total = len(epub_paths)
+    for index, epub_path in enumerate(epub_paths, start=1):
+        console.print(f"[cyan]Batch item {index}/{total}:[/cyan] {epub_path}")
+        try:
+            run_result = _run_translation(
+                epub_path=epub_path,
+                output=None,
+                output_dir=resolved_output_dir,
+                review_output=None,
+                source=source,
+                target=target,
+                translator_name=translator_name,
+                url=url,
+                cache_path=cache_path,
+                glossary_path=glossary_path,
+                profile_name=profile_name,
+                dry_run=dry_run,
+                fail_fast=fail_fast,
+                overwrite=overwrite,
+                timeout=timeout,
+                retries=retries,
+                chunk_limit=chunk_limit,
+                mode=mode,
+                config=config,
+                translate_metadata=translate_metadata,
+                translate_alt_text=translate_alt_text,
+                auto_save_markdown_report=True,
+                report_dir=report_dir,
+                confirm_output_location=False,
+            )
+        except typer.Exit as exc:
+            if isinstance(exc.__cause__, KeyboardInterrupt):
+                raise
+            results.append(
+                BatchTranslationResult(
+                    epub_path=epub_path,
+                    succeeded=False,
+                    detail=f"exit code {exc.exit_code or 1}",
+                )
+            )
+            console.print(f"[red]Batch item failed:[/red] {epub_path}")
+            if continue_on_error:
+                continue
+            _print_batch_summary(results)
+            raise typer.Exit(code=exc.exit_code or 1) from exc
+        except Exception as exc:
+            detail = str(exc) or exc.__class__.__name__
+            _print_expected_error(
+                "Falha inesperada ao traduzir este EPUB.",
+                "Verifique o EPUB, o tradutor local e as opções usadas antes de tentar novamente.",
+                mode,
+                detail=detail,
+            )
+            results.append(BatchTranslationResult(epub_path=epub_path, succeeded=False, detail=detail))
+            if continue_on_error:
+                continue
+            _print_batch_summary(results)
+            raise typer.Exit(code=1) from exc
+
+        results.append(
+            BatchTranslationResult(
+                epub_path=epub_path,
+                succeeded=True,
+                output_path=run_result.report.output_path,
+                report_path=run_result.markdown_report_path,
+            )
+        )
+
+    _print_batch_summary(results)
+    if any(not result.succeeded for result in results):
+        raise typer.Exit(code=1)
+
+
+def _print_batch_plan(
+    epub_paths: list[Path],
+    output_dir: Path,
+    report_dir: Path,
+    continue_on_error: bool,
+) -> None:
+    table = Table(title="Batch translation plan")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("EPUB files", str(len(epub_paths)))
+    table.add_row("Output folder", str(output_dir))
+    table.add_row("Reports folder", str(report_dir))
+    table.add_row("Continue on error", "yes" if continue_on_error else "no")
+    console.print(table)
+
+
+def _print_batch_summary(results: list[BatchTranslationResult]) -> None:
+    table = Table(title="Batch translation summary")
+    table.add_column("EPUB")
+    table.add_column("Status")
+    table.add_column("Output or detail")
+    table.add_column("Report")
+    for result in results:
+        status = "[green]OK[/green]" if result.succeeded else "[red]Failed[/red]"
+        detail = _display_optional_path(result.output_path) if result.succeeded else result.detail
+        table.add_row(
+            str(result.epub_path),
+            status,
+            detail or "-",
+            _display_optional_path(result.report_path),
+        )
+    console.print(table)
 
 
 def _run_preview(
@@ -1922,8 +2212,9 @@ def _save_markdown_report(
     report: TranslationReport,
     dry_run: bool,
     validation_warnings: list[str] | None = None,
+    directory: Path | None = None,
 ) -> Path:
-    directory = _default_reports_dir()
+    directory = directory or _default_reports_dir()
     directory.mkdir(parents=True, exist_ok=True)
     path = _next_available_report_path(directory, _report_filename_stem(report))
     path.write_text(_render_markdown_report(report, dry_run, validation_warnings), encoding="utf-8")
