@@ -131,6 +131,15 @@ Traduzir usando um perfil salvo na configuração:
 uv run ayvu translate livro.epub --profile technical
 ```
 
+Gerenciar o cache de traduções:
+
+```bash
+uv run ayvu cache inspect --cache .cache/traducoes.sqlite
+uv run ayvu cache clean --cache .cache/traducoes.sqlite --source en --target pt --dry-run
+uv run ayvu cache export cache-ayvu.json --cache .cache/traducoes.sqlite
+uv run ayvu cache import cache-ayvu.json --cache .cache/traducoes.sqlite
+```
+
 Traduzir vários EPUBs em uma única execução:
 
 ```bash
@@ -418,6 +427,28 @@ uv run ayvu translate livro.epub \
 ```
 
 Trechos já traduzidos serão reaproveitados automaticamente.
+
+O cache pode ser inspecionado, limpo, exportado e importado separadamente dos
+comandos de tradução:
+
+```bash
+uv run ayvu cache inspect --cache .cache/traducoes.sqlite
+uv run ayvu cache clean --cache .cache/traducoes.sqlite --source en --target pt --dry-run
+uv run ayvu cache clean --cache .cache/traducoes.sqlite --source en --target pt --yes
+uv run ayvu cache export cache-ayvu.json --cache .cache/traducoes.sqlite
+uv run ayvu cache import cache-ayvu.json --cache .cache/traducoes.sqlite
+```
+
+`cache inspect` agrupa entradas por idioma de origem, idioma de destino,
+quantidade e datas da primeira e última entrada. `cache clean` aceita filtros
+por `--source`, `--target` e `--before`; para limpar tudo, use `--all`. A
+remoção real exige `--yes`, e `--dry-run` mostra quantas entradas seriam
+apagadas sem modificar o SQLite. `cache export` grava JSON legível e
+`cache import` lê esse JSON; entradas existentes são puladas por padrão e podem
+ser substituídas com `--replace`.
+
+O arquivo exportado inclui texto original e texto traduzido. Trate esse JSON
+como conteúdo privado do livro, da mesma forma que o EPUB e o cache SQLite.
 
 Durante traduções reais, o Ayvu também grava um estado local da execução em
 `~/Documentos/Livros/Processando`, ou na pasta de processamento configurada. Esse arquivo registra os caminhos e opções

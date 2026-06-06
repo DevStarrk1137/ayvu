@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
+import sqlite3
 from typing import NoReturn, Optional
 
 import typer
@@ -9,7 +11,7 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
-from .cache import TranslationCache
+from .cache import CacheError, CacheImportReport, CacheSummaryRow, TranslationCache
 from .cli_progress import TranslationProgress, TranslationProgressSnapshot
 from .config import (
     DEFAULT_BOOKS_DIR,
@@ -67,10 +69,13 @@ from .validation import validate_output_epub
 
 
 app = typer.Typer(help="Translate local EPUB files with a local HTTP translator.")
+cache_app = typer.Typer(help="Inspect, clean, export, and import the translation cache.")
+app.add_typer(cache_app, name="cache")
 console = Console()
 DEFAULT_SOURCE_LANGUAGE = "en"
 DEFAULT_TARGET_LANGUAGE = "pt"
 DEFAULT_TRANSLATOR_URL = "http://localhost:5000"
+DEFAULT_CACHE_PATH = Path(".cache/traducoes.sqlite")
 DEFAULT_PREVIEW_DOCUMENT_LIMIT = 12
 GUIDED_TRANSLATE_OPTION = "1"
 GUIDED_PREVIEW_OPTION = "2"
@@ -231,6 +236,153 @@ def languages(
     _print_languages(available_languages)
 
 
+@cache_app.command("inspect")
+def cache_inspect(
+    ctx: typer.Context,
+    cache_path: Path = typer.Option(DEFAULT_CACHE_PATH, "--cache", help="SQLite cache path."),
+    source: Optional[str] = typer.Option(None, "--source", help="Filter by source language."),
+    target: Optional[str] = typer.Option(None, "--target", help="Filter by target language."),
+    before: Optional[str] = typer.Option(
+        None,
+        "--before",
+        help="Only include entries created before this date (YYYY-MM-DD or ISO datetime).",
+    ),
+) -> None:
+    """Show cached translations grouped by language pair."""
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
+    before_value = _normalize_cache_before(before, mode)
+    try:
+        with TranslationCache(cache_path) as cache:
+            rows = cache.summary(source_lang=source, target_lang=target, before=before_value)
+    except (CacheError, OSError, sqlite3.Error) as exc:
+        _print_expected_error(
+            "Não foi possível inspecionar o cache.",
+            "Verifique o caminho informado em --cache e tente novamente.",
+            mode,
+            detail=str(exc),
+        )
+        raise typer.Exit(code=1) from exc
+
+    _print_cache_summary(rows, cache_path)
+
+
+@cache_app.command("clean")
+def cache_clean(
+    ctx: typer.Context,
+    cache_path: Path = typer.Option(DEFAULT_CACHE_PATH, "--cache", help="SQLite cache path."),
+    source: Optional[str] = typer.Option(None, "--source", help="Remove only this source language."),
+    target: Optional[str] = typer.Option(None, "--target", help="Remove only this target language."),
+    before: Optional[str] = typer.Option(
+        None,
+        "--before",
+        help="Remove only entries created before this date (YYYY-MM-DD or ISO datetime).",
+    ),
+    all_entries: bool = typer.Option(False, "--all", help="Allow cleaning the whole cache."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show how many entries would be removed."),
+    yes: bool = typer.Option(False, "--yes", help="Confirm destructive cleanup."),
+) -> None:
+    """Remove cache entries by filter or clear the whole cache."""
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
+    before_value = _normalize_cache_before(before, mode)
+    _validate_cache_clean_options(
+        source=source,
+        target=target,
+        before=before_value,
+        all_entries=all_entries,
+        dry_run=dry_run,
+        yes=yes,
+        mode=mode,
+    )
+
+    try:
+        with TranslationCache(cache_path) as cache:
+            if dry_run:
+                matched = _count_cache_entries(cache, source=source, target=target, before=before_value)
+                console.print(f"[yellow]Dry run:[/yellow] {_plural_cache_entries(matched)} would be removed.")
+                return
+
+            report = cache.delete_entries(source_lang=source, target_lang=target, before=before_value)
+    except (CacheError, OSError, sqlite3.Error) as exc:
+        _print_expected_error(
+            "Não foi possível limpar o cache.",
+            "Verifique o caminho informado em --cache e tente novamente.",
+            mode,
+            detail=str(exc),
+        )
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"[green]Deleted {_plural_cache_entries(report.deleted)}.[/green]")
+
+
+@cache_app.command("export")
+def cache_export(
+    ctx: typer.Context,
+    output: Path = typer.Argument(..., dir_okay=False, help="JSON file to write."),
+    cache_path: Path = typer.Option(DEFAULT_CACHE_PATH, "--cache", help="SQLite cache path."),
+    source: Optional[str] = typer.Option(None, "--source", help="Export only this source language."),
+    target: Optional[str] = typer.Option(None, "--target", help="Export only this target language."),
+    before: Optional[str] = typer.Option(
+        None,
+        "--before",
+        help="Export only entries created before this date (YYYY-MM-DD or ISO datetime).",
+    ),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing an existing JSON file."),
+) -> None:
+    """Export cached translations to readable JSON."""
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
+    before_value = _normalize_cache_before(before, mode)
+    try:
+        with TranslationCache(cache_path) as cache:
+            report = cache.export_json(
+                output,
+                source_lang=source,
+                target_lang=target,
+                before=before_value,
+                overwrite=overwrite,
+            )
+    except (CacheError, OSError, sqlite3.Error) as exc:
+        _print_expected_error(
+            "Não foi possível exportar o cache.",
+            "Verifique --cache, o caminho de saída e tente novamente.",
+            mode,
+            detail=str(exc),
+        )
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"[green]Cache export saved to:[/green] {report.path}")
+    console.print(f"Entries exported: {report.exported}")
+
+
+@cache_app.command("import")
+def cache_import(
+    ctx: typer.Context,
+    input_path: Path = typer.Argument(
+        ...,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="JSON export to import.",
+    ),
+    cache_path: Path = typer.Option(DEFAULT_CACHE_PATH, "--cache", help="SQLite cache path."),
+    replace: bool = typer.Option(False, "--replace", help="Replace existing cache entries."),
+) -> None:
+    """Import cached translations from an Ayvu JSON export."""
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
+    try:
+        with TranslationCache(cache_path) as cache:
+            report = cache.import_json(input_path, replace=replace)
+    except (CacheError, OSError, sqlite3.Error) as exc:
+        _print_expected_error(
+            "Não foi possível importar o cache.",
+            "Confirme que o arquivo foi exportado pelo Ayvu e tente novamente.",
+            mode,
+            detail=str(exc),
+        )
+        raise typer.Exit(code=1) from exc
+
+    _print_cache_import_report(report)
+
+
 @app.command()
 def translate(
     ctx: typer.Context,
@@ -271,7 +423,7 @@ def translate(
     ),
     translator_name: str = typer.Option("libretranslate", "--translator", help="Translator backend."),
     url: str = typer.Option(DEFAULT_TRANSLATOR_URL, "--url", help="Translator base URL."),
-    cache_path: Path = typer.Option(Path(".cache/traducoes.sqlite"), "--cache", help="SQLite cache path."),
+    cache_path: Path = typer.Option(DEFAULT_CACHE_PATH, "--cache", help="SQLite cache path."),
     glossary_path: Optional[Path] = typer.Option(None, "--glossary", help="Optional JSON glossary."),
     profile_name: Optional[str] = typer.Option(
         None,
@@ -377,6 +529,129 @@ def _print_expected_error(summary: str, next_step: str, mode: UserMode, detail: 
     if mode == UserMode.DEVELOPER and detail:
         console.print(f"[dim]Detalhe técnico: {detail}[/dim]")
     console.print(next_step)
+
+
+def _normalize_cache_before(value: str | None, mode: UserMode) -> str | None:
+    if value is None:
+        return None
+
+    raw_value = value.strip()
+    if not raw_value:
+        _print_expected_error(
+            "Data de cache inválida.",
+            "Use --before no formato YYYY-MM-DD ou em formato ISO, como 2026-01-31T10:30:00.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        if len(raw_value) == 10:
+            parsed = datetime.strptime(raw_value, "%Y-%m-%d")
+        else:
+            parsed = datetime.fromisoformat(raw_value.replace("T", " "))
+    except ValueError as exc:
+        _print_expected_error(
+            "Data de cache inválida.",
+            "Use --before no formato YYYY-MM-DD ou em formato ISO, como 2026-01-31T10:30:00.",
+            mode,
+            detail=str(exc),
+        )
+        raise typer.Exit(code=1) from exc
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+    return parsed.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _validate_cache_clean_options(
+    *,
+    source: str | None,
+    target: str | None,
+    before: str | None,
+    all_entries: bool,
+    dry_run: bool,
+    yes: bool,
+    mode: UserMode,
+) -> None:
+    has_filter = bool(source or target or before)
+    if all_entries and has_filter:
+        _print_expected_error(
+            "Opções de limpeza de cache conflitantes.",
+            "Use --all sozinho para limpar tudo, ou remova --all e use filtros como --source, --target ou --before.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+    if not all_entries and not has_filter:
+        _print_expected_error(
+            "A limpeza de cache precisa de um escopo explícito.",
+            "Informe --source, --target, --before ou use --all para limpar o cache inteiro.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+    if dry_run:
+        return
+
+    if not yes:
+        _print_expected_error(
+            "Limpeza de cache não confirmada.",
+            "Use --dry-run para pré-visualizar ou adicione --yes para confirmar a remoção.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+
+def _count_cache_entries(
+    cache: TranslationCache,
+    *,
+    source: str | None,
+    target: str | None,
+    before: str | None,
+) -> int:
+    rows = cache.summary(source_lang=source, target_lang=target, before=before)
+    return sum(row.count for row in rows)
+
+
+def _print_cache_summary(rows: tuple[CacheSummaryRow, ...], cache_path: Path) -> None:
+    console.print(f"[dim]Cache path:[/dim] {cache_path}")
+    if not rows:
+        console.print("No cache entries found.")
+        return
+
+    table = Table(title="Cache summary")
+    table.add_column("Source")
+    table.add_column("Target")
+    table.add_column("Entries")
+    table.add_column("First entry")
+    table.add_column("Last entry")
+    for row in rows:
+        table.add_row(
+            row.source_lang,
+            row.target_lang,
+            str(row.count),
+            row.first_created_at,
+            row.last_created_at,
+        )
+    console.print(table)
+    console.print(f"Total: {_plural_cache_entries(sum(row.count for row in rows))}")
+
+
+def _print_cache_import_report(report: CacheImportReport) -> None:
+    table = Table(title="Cache import", show_header=False)
+    table.add_column("Metric", style="bold")
+    table.add_column("Value")
+    table.add_row("Entries read", str(report.total_read))
+    table.add_row("Imported", str(report.imported))
+    table.add_row("Skipped existing", str(report.skipped))
+    table.add_row("Replaced", str(report.replaced))
+    console.print(table)
+
+
+def _plural_cache_entries(count: int) -> str:
+    noun = "entry" if count == 1 else "entries"
+    return f"{count} cache {noun}"
 
 
 def _print_epub_read_error(detail: str, mode: UserMode) -> None:
@@ -945,7 +1220,7 @@ def _run_preview(
     target: str = DEFAULT_TARGET_LANGUAGE,
     translator_name: str = "libretranslate",
     url: str = DEFAULT_TRANSLATOR_URL,
-    cache_path: Path = Path(".cache/traducoes.sqlite"),
+    cache_path: Path = DEFAULT_CACHE_PATH,
     glossary_path: Path | None = None,
     timeout: float = 30.0,
     retries: int = 2,
@@ -1509,7 +1784,7 @@ def _run_guided_translation(config: AyvuConfig) -> None:
         target=target,
         translator_name="libretranslate",
         url=DEFAULT_TRANSLATOR_URL,
-        cache_path=Path(".cache/traducoes.sqlite"),
+        cache_path=DEFAULT_CACHE_PATH,
         glossary_path=glossary_path,
         profile_name=profile_name,
         dry_run=False,

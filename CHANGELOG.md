@@ -30,6 +30,8 @@ lancadas e secoes versionadas quando uma release for publicada.
   intermediaria via ingles quando nao houver rota direta.
 - Preflight antes da traducao real, verificando EPUB, cache, glossario, idiomas,
   rota de traducao e tradutor.
+- Comandos `cache inspect`, `cache clean`, `cache export` e `cache import` para
+  gerenciar o cache SQLite fora do fluxo normal de traducao.
 - Estado local de retomada em `~/Documentos/Livros/Processando` ou na pasta de
   processamento configurada.
 - Oferta de retomada no modo comum quando uma traducao em andamento e detectada.
