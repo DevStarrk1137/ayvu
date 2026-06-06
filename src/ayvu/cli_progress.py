@@ -14,6 +14,7 @@ class TranslationProgressSnapshot:
     texts_translated: int
     texts_from_cache: int
     texts_dry_run: int
+    texts_missing: int
     text_errors: int
 
 
@@ -22,6 +23,7 @@ class TextProgressCounters:
     translated: int = 0
     cache: int = 0
     dry_run: int = 0
+    missing: int = 0
     error: int = 0
 
     def record(self, status: str) -> None:
@@ -34,6 +36,9 @@ class TextProgressCounters:
         if status == "dry_run":
             self.dry_run += 1
             return
+        if status == "missing":
+            self.missing += 1
+            return
         if status == "error":
             self.error += 1
             return
@@ -41,7 +46,7 @@ class TextProgressCounters:
 
     @property
     def processed(self) -> int:
-        return self.translated + self.cache + self.dry_run + self.error
+        return self.translated + self.cache + self.dry_run + self.missing + self.error
 
     def new_count(self, dry_run: bool) -> int:
         if dry_run:
@@ -90,6 +95,7 @@ class TranslationProgress:
             texts_translated=self._counters.translated,
             texts_from_cache=self._counters.cache,
             texts_dry_run=self._counters.dry_run,
+            texts_missing=self._counters.missing,
             text_errors=self._counters.error,
         )
 
@@ -101,7 +107,8 @@ class TranslationProgress:
         new_count = self._counters.new_count(self._dry_run)
         return (
             f"Texts {self._counters.processed} | {new_label} {new_count} | "
-            f"cache {self._counters.cache} | errors {self._counters.error}"
+            f"cache {self._counters.cache} | missing {self._counters.missing} | "
+            f"errors {self._counters.error}"
         )
 
 

@@ -45,6 +45,7 @@ def run_translation_preflight(
     retries: int,
     language_pair: LanguagePair,
     dry_run: bool,
+    cache_only: bool = False,
 ) -> TranslationPreflightResult:
     _check_language_pair(language_pair)
     glossary = _load_checked_glossary(glossary_path)
@@ -52,7 +53,7 @@ def run_translation_preflight(
     _check_cache(cache_path)
     _check_epub(epub_path)
     route: TranslationRoute | None = None
-    if not dry_run:
+    if not dry_run and not cache_only:
         route = _resolve_route_or_fallback(translator, language_pair, url)
         if route is not None and not route.is_direct:
             translator = RoutedTranslator(translator, route)

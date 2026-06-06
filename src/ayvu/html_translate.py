@@ -86,7 +86,9 @@ class HtmlTranslationStats:
     from_cache: int = 0
     skipped: int = 0
     alt_translated: int = 0
+    missing: int = 0
     errors: list[str] = field(default_factory=list)
+    missing_texts: list[str] = field(default_factory=list)
     glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
 
 
@@ -110,6 +112,7 @@ class TextParts:
 class TextTranslationResult:
     text: str
     from_cache: bool = False
+    missing: bool = False
     glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
 
 
@@ -149,6 +152,7 @@ def translate_html(
     target: str,
     glossary: Glossary | None = None,
     dry_run: bool = False,
+    cache_only: bool = False,
     fail_fast: bool = False,
     chunk_limit: int = 3000,
     on_error: Callable[[Exception], None] | None = None,
@@ -174,11 +178,14 @@ def translate_html(
                 target=target,
                 glossary=glossary,
                 dry_run=dry_run,
+                cache_only=cache_only,
                 chunk_limit=chunk_limit,
             )
-            if not dry_run:
+            if not dry_run and not result.missing:
                 fragment = _expand_tag_tokens(escape(result.text), tag_markup)
                 _replace_run(run, _parse_fragment_nodes(fragment))
+            if result.missing:
+                stats.missing_texts.append(_review_text_from_template(template, tag_markup))
             _notify_segment_translated(
                 on_segment_translated,
                 original_template=template,
@@ -188,7 +195,7 @@ def translate_html(
                 from_cache=result.from_cache,
             )
             stats.glossary_usage.merge(result.glossary_usage)
-            _record_success(stats, result.from_cache, dry_run, on_text_processed)
+            _record_success(stats, result, dry_run, on_text_processed)
         except Exception as exc:
             stats.errors.append(str(exc))
             _notify_text_processed(on_text_processed, "error")
@@ -206,6 +213,7 @@ def translate_html(
             target=target,
             glossary=glossary,
             dry_run=dry_run,
+            cache_only=cache_only,
             fail_fast=fail_fast,
             chunk_limit=chunk_limit,
             stats=stats,
@@ -225,6 +233,7 @@ def translate_text(
     target: str,
     glossary: Glossary | None = None,
     dry_run: bool = False,
+    cache_only: bool = False,
     chunk_limit: int = 3000,
 ) -> TextTranslationResult:
     parts = TextParts.from_text(text)
@@ -241,6 +250,9 @@ def translate_text(
             from_cache=True,
             glossary_usage=application.usage,
         )
+
+    if cache_only:
+        return TextTranslationResult(text=text, missing=True)
 
     if dry_run:
         return TextTranslationResult(text=text)
@@ -307,6 +319,7 @@ def _translate_image_alt_text(
     target: str,
     glossary: Glossary | None,
     dry_run: bool,
+    cache_only: bool,
     fail_fast: bool,
     chunk_limit: int,
     stats: HtmlTranslationStats,
@@ -333,10 +346,13 @@ def _translate_image_alt_text(
                 target=target,
                 glossary=glossary,
                 dry_run=dry_run,
+                cache_only=cache_only,
                 chunk_limit=chunk_limit,
             )
-            if not dry_run:
+            if not dry_run and not result.missing:
                 image["alt"] = result.text
+            if result.missing:
+                stats.missing_texts.append(_review_text_from_template(alt, []))
             _notify_segment_translated(
                 on_segment_translated,
                 original_template=alt,
@@ -346,8 +362,9 @@ def _translate_image_alt_text(
                 from_cache=result.from_cache,
             )
             stats.glossary_usage.merge(result.glossary_usage)
-            stats.alt_translated += 1
-            _record_success(stats, result.from_cache, dry_run, on_text_processed)
+            if not result.missing:
+                stats.alt_translated += 1
+            _record_success(stats, result, dry_run, on_text_processed)
         except Exception as exc:
             stats.errors.append(str(exc))
             _notify_text_processed(on_text_processed, "error")
@@ -626,11 +643,16 @@ def _review_visible_text_parts(node) -> list[str]:
 
 def _record_success(
     stats: HtmlTranslationStats,
-    used_cache: bool,
+    result: TextTranslationResult,
     dry_run: bool,
     on_text_processed: TextProgressCallback | None,
 ) -> None:
-    if used_cache:
+    if result.missing:
+        stats.missing += 1
+        _notify_text_processed(on_text_processed, "missing")
+        return
+
+    if result.from_cache:
         stats.from_cache += 1
         _notify_text_processed(on_text_processed, "cache")
         return

@@ -2083,6 +2083,136 @@ def test_translate_command_handles_keyboard_interrupt_cleanly(tmp_path, monkeypa
     assert not output_path.exists()
 
 
+def test_translate_command_require_full_cache_requires_cache_only(tmp_path):
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_bytes(b"fake epub")
+
+    result = runner.invoke(app, ["translate", str(epub_path), "--require-full-cache"])
+
+    assert result.exit_code == 1
+    assert "--require-full-cache exige --cache-only" in result.output
+
+
+def test_translate_command_missing_output_requires_cache_only(tmp_path):
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_bytes(b"fake epub")
+
+    result = runner.invoke(
+        app, ["translate", str(epub_path), "--missing-output", str(tmp_path / "missing.txt")]
+    )
+
+    assert result.exit_code == 1
+    assert "--missing-output exige --cache-only" in result.output
+
+
+def test_translate_command_cache_only_saves_missing_texts_file(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    missing_path = tmp_path / "missing.txt"
+    epub_path.write_bytes(b"fake epub")
+
+    report = TranslationReport(
+        chapters_processed=1,
+        texts_from_cache=1,
+        texts_missing=2,
+        missing_texts=["Hello reader.", "Another line."],
+        output_path=output_path,
+        output_written=True,
+        input_path=epub_path,
+        detected_language="en",
+        target_language="pt",
+    )
+    captured: dict[str, object] = {}
+
+    def fake_translate_epub(*_args: object, **kwargs: object) -> TranslationReport:
+        captured["options"] = kwargs["options"]
+        return report
+
+    def fake_preflight(**kwargs: object) -> SimpleNamespace:
+        captured["preflight_kwargs"] = kwargs
+        return SimpleNamespace(translator=object(), glossary=None, route=None)
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fake_preflight)
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", fake_translate_epub)
+    monkeypatch.setattr(
+        "ayvu.cli.validate_output_epub",
+        lambda _path, on_progress=None: ValidationResult(ok=True, warnings=[], document_count=1),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "translate",
+            str(epub_path),
+            "--output",
+            str(output_path),
+            "--cache-only",
+            "--missing-output",
+            str(missing_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Texts missing" in result.output
+    assert captured["options"].cache_only is True
+    assert captured["preflight_kwargs"]["cache_only"] is True
+    assert missing_path.exists()
+    content = missing_path.read_text(encoding="utf-8")
+    assert "Missing texts: 2" in content
+    assert "Hello reader." in content
+    assert "Another line." in content
+
+
+def test_translate_command_cache_only_require_full_cache_blocks_output(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    output_path = tmp_path / "book-pt.epub"
+    missing_path = tmp_path / "missing.txt"
+    epub_path.write_bytes(b"fake epub")
+
+    report = TranslationReport(
+        chapters_processed=1,
+        texts_from_cache=1,
+        texts_missing=2,
+        missing_texts=["Hello reader.", "Another line."],
+        output_path=output_path,
+        output_written=False,
+        input_path=epub_path,
+        detected_language="en",
+        target_language="pt",
+    )
+    monkeypatch.setattr(
+        "ayvu.cli.run_translation_preflight",
+        lambda **_kwargs: SimpleNamespace(translator=object(), glossary=None, route=None),
+    )
+    monkeypatch.setattr("ayvu.cli.TranslationCache", lambda _path: FakeCache())
+    monkeypatch.setattr("ayvu.cli.translate_epub", lambda *_args, **_kwargs: report)
+
+    def fail_validate(*_args: object, **_kwargs: object) -> ValidationResult:
+        raise AssertionError("validation must not run when output is blocked")
+
+    monkeypatch.setattr("ayvu.cli.validate_output_epub", fail_validate)
+
+    result = runner.invoke(
+        app,
+        [
+            "translate",
+            str(epub_path),
+            "--output",
+            str(output_path),
+            "--cache-only",
+            "--require-full-cache",
+            "--missing-output",
+            str(missing_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Cache incompleto" in result.output
+    assert "(cache incompleto, nenhum arquivo gerado)" in result.output
+    assert missing_path.exists()
+
+
 class FakeCache:
     def __enter__(self) -> "FakeCache":
         return self

@@ -19,6 +19,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Biblioteca inicial para listar originais e traduções e abrir EPUBs no leitor configurado ou padrão do sistema.
 - Checagens internas antes de iniciar traduções reais.
 - Modo `dry-run` para simular o processamento sem gerar arquivo.
+- Modo `cache-only` para reconstruir o EPUB usando apenas o cache, sem chamar o tradutor.
 - Extração de texto visível para Markdown.
 - Relatório final no terminal e opção de salvar relatório Markdown no modo comum.
 - Validação do EPUB gerado com barra de progresso, avisando sobre capítulos vazios, links internos quebrados e imagens referenciadas ausentes.
@@ -356,7 +357,16 @@ uv run ayvu translate livro.epub \
   --dry-run
 ```
 
-Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, arquivo de revisão quando solicitado, capítulos processados, textos traduzidos, cache, erros e resumo do uso do glossário quando houver glossário configurado. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`. Em traduções em batch, o Ayvu salva automaticamente um relatório Markdown separado para cada livro.
+Reconstruir usando apenas o cache, sem chamar o tradutor:
+
+```bash
+uv run ayvu translate livro.epub \
+  --output teste.epub \
+  --cache-only \
+  --missing-output faltantes.txt
+```
+
+Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, arquivo de revisão quando solicitado, capítulos processados, textos traduzidos, cache, textos ausentes do cache (no modo cache-only), erros e resumo do uso do glossário quando houver glossário configurado. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`. Em traduções em batch, o Ayvu salva automaticamente um relatório Markdown separado para cada livro.
 
 Extrair texto visível para Markdown:
 
@@ -457,6 +467,39 @@ automaticamente.
 
 Ao executar `uv run ayvu`, o modo comum procura estados de tradução em andamento
 nessa pasta e oferece retomar uma execução detectada.
+
+### Modo cache-only
+
+O modo `--cache-only` reconstrói o EPUB usando **apenas** o que já está no cache e
+**nunca** chama o tradutor. Ele serve para testar a reconstrução, reaproveitar
+trabalho anterior de forma controlada e evitar chamadas acidentais ao tradutor.
+Como não há tráfego de rede, não é preciso um servidor LibreTranslate ativo.
+
+```bash
+uv run ayvu translate livro.epub \
+  --output livro-ptbr.epub \
+  --cache .cache/traducoes.sqlite \
+  --cache-only \
+  --missing-output faltantes.txt
+```
+
+Comportamento:
+
+- Trechos presentes no cache são aplicados (com glossário, quando configurado).
+- Trechos ausentes do cache ficam no idioma original e são contados como
+  `Texts missing` no relatório.
+- Por padrão, o EPUB é gerado mesmo com cobertura parcial. Use
+  `--require-full-cache` para gerar somente quando todos os trechos estiverem no
+  cache; se faltar algum, nada é escrito e o comando falha.
+- `--missing-output CAMINHO` salva os trechos originais ausentes do cache. Sem
+  essa opção, em cache-only com faltantes, o arquivo é gravado automaticamente na
+  pasta de Relatórios. O arquivo é gerado mesmo quando `--require-full-cache`
+  bloqueia a saída, para mostrar o que precisa ser traduzido.
+
+Diferença para a retomada normal: a retomada reexecuta a tradução e **chama o
+tradutor** para os trechos ainda não cacheados, gravando estado em
+`~/Documentos/Livros/Processando`. O cache-only nunca chama o tradutor, não cria
+estado de retomada e não exige servidor ativo.
 
 ## Biblioteca
 
