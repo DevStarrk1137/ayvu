@@ -58,6 +58,10 @@ lancadas e secoes versionadas quando uma release for publicada.
 - Opcao `--review-output` para gerar CSV opcional com textos originais e
   traduzidos lado a lado, IDs de capitulo/segmento e metadados de rastreio do
   EPUB para revisao humana externa.
+- Comando `apply-review` para reconstruir um EPUB a partir de um CSV revisado,
+  validando que cada segmento ainda corresponde ao EPUB original, aplicando as
+  traducoes revisadas sem alterar o original e relatando trechos sem revisao,
+  ausentes, inconsistentes, duplicados ou de documentos desconhecidos.
 
 ### Atualizado
 
