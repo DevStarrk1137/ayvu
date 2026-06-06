@@ -11,7 +11,7 @@ from ebooklib import ITEM_DOCUMENT
 from ebooklib import epub
 
 from .cache import TranslationCache
-from .domain import TranslationOptions
+from .domain import ChapterSelection, ChapterSelectionError, TranslationOptions
 from .glossary import Glossary, GlossaryUsage
 from .html_translate import (
     HtmlTranslatedSegment,
@@ -59,6 +59,15 @@ class EpubInfo:
 class EpubDocument:
     name: str
     archive_path: str
+    title: str | None = None
+
+
+@dataclass(frozen=True)
+class SelectedChapter:
+    index: int
+    name: str
+    archive_path: str
+    title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -194,15 +203,18 @@ def translate_epub(
 
     with ZipFile(source_path, "r") as source_epub:
         archive_names = set(source_epub.namelist())
-        navigation_documents = _navigation_document_entries(source_epub, opf_archive_path, opf_base_path)
         documents = _limited_documents(
-            _documents_for_translation(
-                _document_entries(book, opf_base_path),
-                navigation_documents,
-                translate_metadata=options.translate_metadata,
+            _translation_documents(
+                book,
+                source_epub,
+                opf_archive_path,
+                opf_base_path,
+                options.translate_metadata,
+                include_titles=options.chapter_selection is not None,
             ),
             options.max_documents,
         )
+        documents = _select_documents(documents, options.chapter_selection)
         total_documents = len(documents)
 
         if options.translate_metadata and opf_archive_path and opf_archive_path in archive_names:
@@ -292,6 +304,33 @@ def translate_epub(
         _copy_epub_with_replacements(source_path, destination_path, replacements)
 
     return report
+
+
+def resolve_chapter_selection(
+    input_path: str | Path,
+    selection: ChapterSelection,
+    translate_metadata: bool = False,
+    max_documents: int | None = None,
+) -> list[SelectedChapter]:
+    source_path = Path(input_path)
+    book = epub.read_epub(str(source_path))
+    opf_archive_path = _get_opf_archive_path(source_path)
+    opf_base_path = _opf_base_path(opf_archive_path)
+
+    with ZipFile(source_path, "r") as source_epub:
+        documents = _limited_documents(
+            _translation_documents(
+                book,
+                source_epub,
+                opf_archive_path,
+                opf_base_path,
+                translate_metadata,
+                include_titles=True,
+            ),
+            max_documents,
+        )
+
+    return _resolve_selected_chapters(documents, selection)
 
 
 def extract_markdown(input_path: str | Path, output_dir: str | Path) -> list[Path]:
@@ -515,11 +554,21 @@ def _document_zip_path(opf_base_path: PurePosixPath, item_name: str) -> str:
     return path.as_posix()
 
 
-def _document_entries(book: epub.EpubBook, opf_base_path: PurePosixPath) -> list[EpubDocument]:
+def _document_entries(
+    book: epub.EpubBook,
+    opf_base_path: PurePosixPath,
+    include_titles: bool = False,
+) -> list[EpubDocument]:
     documents: list[EpubDocument] = []
     for item in book.get_items_of_type(ITEM_DOCUMENT):
         name = item.get_name()
-        documents.append(EpubDocument(name=name, archive_path=_document_zip_path(opf_base_path, name)))
+        documents.append(
+            EpubDocument(
+                name=name,
+                archive_path=_document_zip_path(opf_base_path, name),
+                title=_document_title(item) if include_titles else None,
+            )
+        )
     return documents
 
 
@@ -545,6 +594,73 @@ def _documents_for_translation(
             selected.append(document)
             selected_paths.add(document.archive_path)
     return selected
+
+
+def _translation_documents(
+    book: epub.EpubBook,
+    source_epub: ZipFile,
+    opf_archive_path: str | None,
+    opf_base_path: PurePosixPath,
+    translate_metadata: bool,
+    include_titles: bool = False,
+) -> list[EpubDocument]:
+    return _documents_for_translation(
+        _document_entries(book, opf_base_path, include_titles=include_titles),
+        _navigation_document_entries(source_epub, opf_archive_path, opf_base_path),
+        translate_metadata=translate_metadata,
+    )
+
+
+def _select_documents(
+    documents: list[EpubDocument],
+    selection: ChapterSelection | None,
+) -> list[EpubDocument]:
+    if selection is None:
+        return documents
+    selected = _resolve_selected_chapters(documents, selection)
+    return [documents[chapter.index - 1] for chapter in selected]
+
+
+def _resolve_selected_chapters(
+    documents: list[EpubDocument],
+    selection: ChapterSelection,
+) -> list[SelectedChapter]:
+    selected: list[SelectedChapter] = []
+    for index, document in enumerate(documents, start=1):
+        if selection.matches(index, document.name, document.archive_path, document.title):
+            selected.append(
+                SelectedChapter(
+                    index=index,
+                    name=document.name,
+                    archive_path=document.archive_path,
+                    title=document.title,
+                )
+            )
+
+    if not selected:
+        raise ChapterSelectionError(f"no chapters matched selection: {selection.source}")
+    return selected
+
+
+def _document_title(item: object) -> str | None:
+    title = getattr(item, "title", None)
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    get_title = getattr(item, "get_title", None)
+    if callable(get_title):
+        title = get_title()
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+    get_content = getattr(item, "get_content", None)
+    if callable(get_content):
+        try:
+            for text in extract_visible_text(get_content()):
+                clean = " ".join(text.split())
+                if clean:
+                    return clean
+        except Exception:
+            return None
+    return None
 
 
 def _navigation_document_entries(

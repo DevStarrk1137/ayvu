@@ -352,6 +352,24 @@ desenvolvedor, ou confirme a substituição quando estiver no modo comum.
 Cada item do batch mostra seu relatório no terminal e salva um relatório
 Markdown separado na pasta de relatórios configurada.
 
+### Traduzir capítulos selecionados
+
+```bash
+uv run ayvu translate livro.epub \
+  --source en \
+  --target pt \
+  --chapters "1-3,5,*chapter2*"
+```
+
+`--chapters` limita a tradução a documentos internos selecionados. Use índices
+1-based, faixas e padrões separados por vírgula. Padrões com `*`, `?` ou `[`
+usam glob simples; sem curinga, o Ayvu procura o trecho no título detectado, no
+nome do item e no caminho interno do documento.
+
+Antes de iniciar a tradução, o Ayvu mostra uma tabela `Selected chapters` com os
+capítulos que serão processados. Capítulos fora da seleção permanecem no idioma
+original e são copiados sem alteração para o EPUB gerado.
+
 ### Exportar CSV para revisão externa
 
 ```bash

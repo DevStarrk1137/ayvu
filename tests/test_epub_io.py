@@ -2,10 +2,11 @@ import csv
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
 
+import pytest
 from ebooklib import ITEM_DOCUMENT
 
 from ayvu.cache import TranslationCache
-from ayvu.domain import LanguagePair, TranslationOptions
+from ayvu.domain import ChapterSelection, ChapterSelectionError, LanguagePair, TranslationOptions
 from ayvu.epub_io import (
     EpubDocument,
     EpubReplacements,
@@ -21,6 +22,7 @@ from ayvu.epub_io import (
     extract_markdown,
     inspect_epub,
     normalize_language_code,
+    resolve_chapter_selection,
     translate_epub,
 )
 from ayvu.glossary import GLOSSARY_RULE_FORBIDDEN, GLOSSARY_RULE_PRESERVE, Glossary, GlossaryEntry
@@ -415,6 +417,59 @@ def test_translate_epub_limits_documents_for_preview(minimal_epub_path: Path, tm
     assert "PT:Hello reader. Visit" in chapter_one
     assert "PT:Goodbye reader." not in chapter_two
     assert "Goodbye reader." in chapter_two
+
+
+def test_translate_epub_translates_selected_chapter_by_index_without_changing_others(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    output_path = tmp_path / "minimal-selected.epub"
+    translator = PrefixTranslator()
+    options = TranslationOptions(
+        language_pair=LanguagePair(source="en", target="pt"),
+        chapter_selection=ChapterSelection.parse("2"),
+    )
+
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        report = translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=translator,
+            cache=cache,
+            options=options,
+        )
+
+    assert report.chapters_processed == 1
+
+    with ZipFile(output_path) as output_epub:
+        names = output_epub.namelist()
+        chapter_one_name = next(name for name in names if name.endswith("text/chapter1.xhtml"))
+        chapter_two_name = next(name for name in names if name.endswith("text/chapter2.xhtml"))
+        chapter_one = output_epub.read(chapter_one_name).decode("utf-8")
+        chapter_two = output_epub.read(chapter_two_name).decode("utf-8")
+
+    assert "PT:Hello reader. Visit" not in chapter_one
+    assert "Hello reader. Visit" in chapter_one
+    assert "PT:Goodbye reader." in chapter_two
+
+
+def test_resolve_chapter_selection_matches_title_and_path_patterns(minimal_epub_path: Path):
+    by_title = resolve_chapter_selection(minimal_epub_path, ChapterSelection.parse("Chapter Two"))
+    by_path = resolve_chapter_selection(minimal_epub_path, ChapterSelection.parse("*chapter2*"))
+
+    assert [chapter.index for chapter in by_title] == [2]
+    assert by_title[0].title == "Chapter Two"
+    assert [chapter.index for chapter in by_path] == [2]
+
+
+def test_resolve_chapter_selection_rejects_unmatched_selection(minimal_epub_path: Path):
+    with pytest.raises(ChapterSelectionError, match="no chapters matched selection"):
+        resolve_chapter_selection(minimal_epub_path, ChapterSelection.parse("999"))
+
+
+def test_chapter_selection_rejects_invalid_range():
+    with pytest.raises(ChapterSelectionError, match="chapter range is reversed"):
+        ChapterSelection.parse("3-1")
 
 
 def test_translate_epub_reports_glossary_usage(minimal_epub_path: Path, tmp_path: Path):
