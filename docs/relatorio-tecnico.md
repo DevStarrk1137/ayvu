@@ -254,7 +254,7 @@ uv run ayvu --mode common translate livro.epub
 
 `src/ayvu/translator.py` define o contrato `Translator` e o backend `LibreTranslateTranslator`.
 
-`src/ayvu/cache.py` persiste traduções em SQLite usando idioma de origem, idioma de destino e hash do texto original.
+`src/ayvu/cache.py` persiste traduções em SQLite usando idioma de origem, idioma de destino e hash do texto original. Também centraliza inspeção, limpeza filtrada, exportação JSON e importação JSON do cache.
 
 `src/ayvu/glossary.py` lê glossários JSON no formato simples e no formato com
 regras explícitas `translate`, `preserve` e `forbidden`.
@@ -382,6 +382,12 @@ source_lang + target_lang + SHA-256(texto original)
 ```
 
 Com a tradução por bloco, o "texto original" é o bloco inteiro com placeholders de tags, então a unidade do cache é o bloco, não mais o nó de texto isolado. Blocos sem tags mantêm a mesma chave de antes; blocos com tags geram chaves novas, o que evita reaproveitar por engano entradas antigas guardadas por nó.
+
+O comando `ayvu cache` mantém o gerenciamento separado da tradução normal. Ele
+permite inspecionar entradas por par de idiomas e datas, limpar entradas com
+filtros ou `--all`, exportar JSON legível e importar o JSON exportado. A
+exportação contém texto original e traduzido, então deve ser tratada como dado
+privado.
 
 O glossário é aplicado depois da tradução e também sobre textos recuperados do cache. Isso mantém o comportamento consistente entre texto novo e texto reaproveitado.
 
@@ -586,7 +592,7 @@ Prioridades que ainda fazem sentido:
    `preserve` ou `forbidden`, sem empilhamento genérico.
 2. Melhorar validação pós-tradução, incluindo links, capítulos vazios, imagens ausentes e texto não traduzido.
 3. Criar configuração persistente para idioma padrão, pastas e preferências.
-4. Melhorar cache com inspeção, limpeza, exportação e escopo por backend/modelo/glossário.
+4. Avaliar escopo de cache por backend, modelo, glossário ou perfil quando esses fatores passarem a alterar o resultado esperado.
 5. Adicionar modo `--cache-only`.
 6. Suportar backends alternativos.
 7. Documentar arquitetura em um documento dedicado.

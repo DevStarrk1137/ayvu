@@ -231,6 +231,36 @@ uv run ayvu translate livro.epub \
 
 Se o processo for interrompido, rode o comando novamente com o mesmo cache. O Ayvu reaproveita os trechos já traduzidos.
 
+Para ver o que existe no cache, use:
+
+```bash
+uv run ayvu cache inspect --cache .cache/traducoes.sqlite
+```
+
+Para limpar entradas antigas ou de um par de idiomas específico, faça primeiro
+uma prévia:
+
+```bash
+uv run ayvu cache clean \
+  --cache .cache/traducoes.sqlite \
+  --source en \
+  --target pt \
+  --dry-run
+```
+
+Se o resultado estiver correto, repita com `--yes` no lugar de `--dry-run`.
+Para limpar o cache inteiro, use `--all --yes`.
+
+Também é possível exportar e importar o cache em JSON legível:
+
+```bash
+uv run ayvu cache export cache-ayvu.json --cache .cache/traducoes.sqlite
+uv run ayvu cache import cache-ayvu.json --cache .cache/traducoes.sqlite
+```
+
+Esse JSON contém textos originais e traduzidos. Trate o arquivo exportado como
+privado.
+
 ### Ajustar configurações
 
 No menu inicial, escolha `Settings` para ver os valores atuais e alterar preferências locais. A pasta base padrão inicial é:
