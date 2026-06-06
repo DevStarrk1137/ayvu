@@ -1,9 +1,41 @@
 from __future__ import annotations
 
 import csv
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+
+
+METADATA_SEGMENT_ID = "metadata-title"
+METADATA_SEGMENT_KIND = "metadata_title"
+METADATA_CHAPTER_NAME = "metadata"
+_SEGMENT_ID_PATTERN = re.compile(r"^c(\d+)-s(\d+)$")
+
+
+@dataclass(frozen=True)
+class SegmentLocation:
+    is_metadata: bool
+    chapter_index: int | None = None
+    segment_index: int | None = None
+
+
+def format_segment_id(chapter_index: int, segment_index: int) -> str:
+    return f"c{chapter_index:04d}-s{segment_index:04d}"
+
+
+def parse_segment_id(segment_id: str) -> SegmentLocation | None:
+    value = segment_id.strip()
+    if value == METADATA_SEGMENT_ID:
+        return SegmentLocation(is_metadata=True)
+    match = _SEGMENT_ID_PATTERN.match(value)
+    if match is None:
+        return None
+    return SegmentLocation(
+        is_metadata=False,
+        chapter_index=int(match.group(1)),
+        segment_index=int(match.group(2)),
+    )
 
 
 REVIEW_CSV_COLUMNS = (

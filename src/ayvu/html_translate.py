@@ -123,6 +123,18 @@ class HtmlTranslatedSegment:
 
 SegmentReviewCallback = Callable[[HtmlTranslatedSegment], None]
 
+# Resolves a reviewed translation for one segment. Receives the per-document
+# segment index (1-based, in emission order), the segment kind ("text"/"alt")
+# and the visible original text re-derived from the source EPUB. Returns the
+# replacement text to apply, or ``None`` to leave the segment untouched.
+ApplyResolver = Callable[[int, str, str], "str | None"]
+
+
+@dataclass
+class ApplyHtmlStats:
+    applied: int = 0
+    skipped: int = 0
+
 
 def extract_visible_text(html: str | bytes) -> list[str]:
     soup = BeautifulSoup(html, "lxml-xml")
@@ -242,6 +254,49 @@ def translate_text(
     cache.set(cache_key, translated)
     application = apply_glossary_with_usage(translated, glossary)
     return TextTranslationResult(text=parts.restore(application.text), glossary_usage=application.usage)
+
+
+def apply_reviewed_html(
+    html: str | bytes,
+    resolve: ApplyResolver,
+) -> tuple[bytes, ApplyHtmlStats]:
+    """Apply reviewed translations to an HTML/XHTML document.
+
+    Walks the same translation runs as :func:`translate_html` so per-document
+    segment indices line up with the review export. The translator is never
+    called: each translatable run (and image ``alt`` text) is offered to
+    ``resolve``; when it returns a string the run's visible text is replaced by
+    that plain text. Inline tags inside a replaced run are not restored because
+    the review file stores plain visible text only.
+    """
+    soup = BeautifulSoup(html, "lxml-xml")
+    stats = ApplyHtmlStats()
+    index = 0
+
+    for run in _collect_translation_runs(soup):
+        template, tag_markup = _build_block_template(run)
+        if not _has_translatable_text(template):
+            stats.skipped += 1
+            continue
+        index += 1
+        original = _review_text_from_template(template, tag_markup)
+        replacement = resolve(index, "text", original)
+        if replacement is not None:
+            _replace_run(run, _parse_fragment_nodes(escape(replacement)))
+            stats.applied += 1
+
+    for image in _image_elements(soup):
+        alt = image.get("alt")
+        if not isinstance(alt, str) or not alt.strip():
+            continue
+        index += 1
+        original = _review_text_from_template(alt, [])
+        replacement = resolve(index, "alt", original)
+        if replacement is not None:
+            image["alt"] = replacement
+            stats.applied += 1
+
+    return soup.encode(formatter="minimal"), stats
 
 
 def _translate_image_alt_text(

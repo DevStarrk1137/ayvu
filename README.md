@@ -181,6 +181,28 @@ e traduzido lado a lado. Se o CSV já existir, use `--overwrite` ou escolha outr
 caminho. A opção não funciona com `--dry-run`, porque o dry-run não gera texto
 traduzido revisável.
 
+Depois de revisar o CSV (editando a coluna `translated`), reconstrua um EPUB
+final a partir do EPUB original com o texto revisado:
+
+```bash
+uv run ayvu apply-review livro.epub livro-review.csv \
+  --output livro-revisado.epub
+```
+
+O comando `apply-review` lê o EPUB original e o CSV revisado, confere que cada
+segmento ainda corresponde ao livro (comparando o texto original) e aplica as
+traduções revisadas em um novo EPUB, sem alterar o original. Se `--output` for
+omitido, o padrão é `<nome>-<idioma>-reviewed.epub`; use `--overwrite` para
+substituir um arquivo existente. O relatório informa quantos segmentos foram
+aplicados e lista trechos sem revisão, ausentes no EPUB, inconsistentes (texto
+original divergente), com identificadores duplicados ou documentos
+desconhecidos.
+
+Limitação: o CSV de revisão guarda apenas o texto visível de cada segmento.
+Por isso, formatação inline dentro de um parágrafo traduzido (negrito, itálico,
+links) é convertida em texto plano ao aplicar a revisão. A estrutura de blocos
+do EPUB (capítulos, parágrafos, imagens, sumário) é preservada.
+
 Gerar um preview traduzido:
 
 ```bash

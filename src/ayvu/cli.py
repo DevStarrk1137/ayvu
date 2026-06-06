@@ -28,7 +28,15 @@ from .domain import (
     default_preview_books_dir,
     default_translated_books_dir,
 )
-from .epub_io import TranslationReport, detect_epub_language, extract_markdown, inspect_epub, translate_epub
+from .epub_io import (
+    ReviewApplyReport,
+    TranslationReport,
+    apply_reviewed_epub,
+    detect_epub_language,
+    extract_markdown,
+    inspect_epub,
+    translate_epub,
+)
 from .glossary import (
     GLOSSARY_RULE_PRESERVE,
     GLOSSARY_RULE_TRANSLATE,
@@ -49,6 +57,7 @@ from .resume import (
     default_processing_dir,
 )
 from .review_export import ReviewSegment, write_review_csv
+from .review_import import ReviewImportError, read_review_csv
 from .translator import LibreTranslateTranslator, TranslationRoute, TranslatorError, TranslatorLanguage
 from .validation import validate_output_epub
 
@@ -667,6 +676,124 @@ def extract(
         _print_epub_read_error(str(exc), mode)
         raise typer.Exit(code=1) from exc
     console.print(f"[green]Extracted {len(written)} Markdown files to[/green] {output}")
+
+
+@app.command("apply-review")
+def apply_review(
+    ctx: typer.Context,
+    epub_path: Path = typer.Argument(
+        ...,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Original EPUB to rebuild from.",
+    ),
+    review_csv: Path = typer.Argument(
+        ...,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Reviewed CSV exported by Ayvu.",
+    ),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output EPUB path. Defaults to <input-stem>-<target>-reviewed.epub.",
+    ),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing an existing output file."),
+) -> None:
+    """Rebuild a translated EPUB from a reviewed CSV, preserving the original file."""
+    mode = ctx.obj.get("mode", UserMode.DEVELOPER)
+    try:
+        review = read_review_csv(review_csv)
+    except ReviewImportError as exc:
+        _print_expected_error(
+            "Não foi possível ler o arquivo de revisão.",
+            "Confirme que é um CSV de revisão gerado pelo Ayvu e tente novamente.",
+            mode,
+            detail=str(exc),
+        )
+        raise typer.Exit(code=1) from exc
+
+    if not review.rows:
+        _print_expected_error(
+            "O arquivo de revisão não tem segmentos.",
+            "Gere o CSV com `ayvu translate --review-output` e revise antes de importar.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+    output_path = _resolve_apply_review_output(epub_path, output, review.target_language)
+    if output_path.exists() and not overwrite:
+        _print_expected_error(
+            "Arquivo de saída já existe.",
+            "Use --overwrite para substituí-lo ou escolha outro caminho em --output.",
+            mode,
+            detail=f"Output: {output_path}",
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        report = apply_reviewed_epub(epub_path, output_path, review)
+    except Exception as exc:
+        _print_epub_read_error(str(exc), mode)
+        raise typer.Exit(code=1) from exc
+
+    validation = _validate_with_progress(output_path)
+    _print_apply_review_report(report, validation.warnings)
+
+
+def _resolve_apply_review_output(epub_path: Path, output: Path | None, target_language: str) -> Path:
+    if output is not None:
+        return output.expanduser()
+    suffix = f"-{target_language}" if target_language else ""
+    return epub_path.with_name(f"{epub_path.stem}{suffix}-reviewed.epub")
+
+
+def _print_apply_review_report(report: ReviewApplyReport, validation_warnings: list[str]) -> None:
+    table = Table(title="Importação de revisão", show_header=False)
+    table.add_column("Campo", style="bold")
+    table.add_column("Valor")
+    table.add_row("Input", str(report.input_path) if report.input_path else "-")
+    table.add_row("Output", str(report.output_path) if report.output_path else "-")
+    table.add_row("Languages", f"{report.source_language or '-'} → {report.target_language or '-'}")
+    table.add_row("Segments applied", str(report.applied))
+    table.add_row("Without review", str(report.untranslated))
+    table.add_row("Missing in EPUB", str(len(report.missing_in_epub)))
+    table.add_row("Inconsistent", str(len(report.inconsistent)))
+    table.add_row("Duplicated ids", str(len(report.duplicated)))
+    table.add_row("Unknown documents", str(len(report.unknown_documents)))
+    table.add_row("Invalid ids", str(len(report.invalid_ids)))
+    console.print(table)
+
+    _print_apply_review_warnings(report)
+    if validation_warnings:
+        _print_validation_warnings(validation_warnings)
+    console.print(f"[green]Reviewed EPUB saved to:[/green] {report.output_path}")
+
+
+def _print_apply_review_warnings(report: ReviewApplyReport) -> None:
+    sections = (
+        ("Segments missing in the EPUB", report.missing_in_epub),
+        ("Inconsistent segments (original changed)", report.inconsistent),
+        ("Duplicated segment ids", report.duplicated),
+        ("Unknown documents", report.unknown_documents),
+        ("Invalid segment ids", report.invalid_ids),
+    )
+    for title, items in sections:
+        if not items:
+            continue
+        console.print(f"[yellow]{title}:[/yellow]")
+        for item in items[:10]:
+            console.print(f"  - {item}")
+        if len(items) > 10:
+            console.print(f"  - ... (+{len(items) - 10})")
+    if report.untranslated:
+        console.print(
+            f"[yellow]{report.untranslated} segment(s) had no reviewed translation "
+            "and stayed in the source language.[/yellow]"
+        )
 
 
 def _validate_with_progress(output_path: Path) -> ValidationResult:
