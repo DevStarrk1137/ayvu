@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from ayvu.domain import LanguagePair, TranslationOptions
+from ayvu.domain import ChapterSelection, LanguagePair, TranslationOptions
 from ayvu.resume import (
     COMPLETED_STATUS,
     RESUME_STATE_VERSION,
@@ -29,6 +29,7 @@ def make_state(tmp_path: Path, stem: str = "book") -> TranslationResumeState:
             chunk_limit=1200,
             translate_metadata=True,
             translate_alt_text=True,
+            chapter_selection=ChapterSelection.parse("1-2,*chapter3*"),
         ),
         overwrite=True,
         timeout=9.5,
@@ -54,6 +55,7 @@ def test_resume_state_round_trip(tmp_path):
     assert loaded.chunk_limit == 1200
     assert loaded.translate_metadata
     assert loaded.translate_alt_text
+    assert loaded.chapter_selection == "1-2,*chapter3*"
     assert loaded.timeout == 9.5
     assert loaded.retries == 3
 
@@ -116,6 +118,18 @@ def test_resume_state_load_defaults_missing_translate_alt_text_to_false(tmp_path
     loaded = store.load(path)
 
     assert not loaded.translate_alt_text
+
+
+def test_resume_state_load_defaults_missing_chapter_selection_to_none(tmp_path):
+    path = tmp_path / "old.ayvu-state.json"
+    data = make_state(tmp_path).to_dict()
+    data.pop("chapter_selection")
+    path.write_text(json.dumps(data), encoding="utf-8")
+    store = ResumeStateStore(tmp_path)
+
+    loaded = store.load(path)
+
+    assert loaded.chapter_selection is None
 
 
 def test_resume_state_scan_finds_running_and_invalid_states(tmp_path):

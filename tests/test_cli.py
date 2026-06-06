@@ -2212,6 +2212,61 @@ def test_translate_alt_text_flag_reaches_translation_options(minimal_epub_path, 
     assert calls["options"].translate_alt_text
 
 
+def test_translate_chapters_option_reaches_translation_options_and_prints_selection(
+    minimal_epub_path, tmp_path, monkeypatch
+):
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(
+        app,
+        ["--mode", "developer", "translate", str(minimal_epub_path), "--chapters", "2"],
+    )
+
+    options = calls["options"]
+    assert result.exit_code == 0
+    assert options.chapter_selection is not None
+    assert options.chapter_selection.source == "2"
+    assert "Selected chapters" in result.output
+    assert "Chapter Two" in result.output
+    assert "text/chapter2.xhtml" in result.output
+
+
+def test_translate_chapters_option_reports_invalid_expression(minimal_epub_path, monkeypatch):
+    def fail_preflight(**_kwargs: object) -> object:
+        raise AssertionError("preflight should not run for invalid chapter selection")
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fail_preflight)
+
+    result = runner.invoke(
+        app,
+        ["--mode", "developer", "translate", str(minimal_epub_path), "--chapters", "3-1"],
+    )
+
+    assert result.exit_code == 1
+    assert "Seleção de capítulos inválida." in result.output
+    assert "chapter range is reversed" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_translate_chapters_option_reports_unmatched_selection(minimal_epub_path, monkeypatch):
+    def fail_preflight(**_kwargs: object) -> object:
+        raise AssertionError("preflight should not run when no chapter matches")
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fail_preflight)
+
+    result = runner.invoke(
+        app,
+        ["--mode", "developer", "translate", str(minimal_epub_path), "--chapters", "999"],
+    )
+
+    assert result.exit_code == 1
+    assert "Nenhum capítulo corresponde à seleção informada." in result.output
+    assert "no chapters matched selection" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_translate_warns_when_epub_language_metadata_is_missing(tmp_path, monkeypatch):
     epub_path = tmp_path / "no-lang.epub"
     book = epub.EpubBook()

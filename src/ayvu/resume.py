@@ -54,6 +54,7 @@ class TranslationResumeState:
     chunk_limit: int
     translate_metadata: bool
     translate_alt_text: bool
+    chapter_selection: str | None
     created_at: str
     updated_at: str
 
@@ -90,6 +91,7 @@ class TranslationResumeState:
             chunk_limit=options.chunk_limit,
             translate_metadata=options.translate_metadata,
             translate_alt_text=options.translate_alt_text,
+            chapter_selection=options.chapter_selection.source if options.chapter_selection else None,
             created_at=now,
             updated_at=now,
         )
@@ -125,6 +127,7 @@ class TranslationResumeState:
             chunk_limit=_required_int(data, "chunk_limit"),
             translate_metadata=_optional_bool(data, "translate_metadata", default=False),
             translate_alt_text=_optional_bool(data, "translate_alt_text", default=False),
+            chapter_selection=_optional_text(data, "chapter_selection"),
             created_at=_required_text(data, "created_at"),
             updated_at=_required_text(data, "updated_at"),
         )
@@ -218,6 +221,15 @@ def _optional_bool(data: dict[str, object], key: str, default: bool) -> bool:
     value = data[key]
     if not isinstance(value, bool):
         raise ResumeStateError(f"Resume state field {key} must be true or false.")
+    return value
+
+
+def _optional_text(data: dict[str, object], key: str) -> str | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ResumeStateError(f"Resume state field {key} must be a non-empty string or null.")
     return value
 
 

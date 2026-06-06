@@ -492,6 +492,14 @@ erro por padrão; com `--continue-on-error`, registra a falha, processa os itens
 restantes e termina com código 1 se qualquer livro falhar. Cada item salva um
 relatório Markdown próprio na pasta de relatórios configurada.
 
+O comando `translate` também aceita `--chapters` para tradução parcial. A CLI
+parseia a expressão e mostra a tabela `Selected chapters`, mas a resolução real
+fica em `epub_io`: os documentos traduzíveis são enumerados na ordem interna do
+EPUB, a seleção casa índices 1-based, faixas ou padrões por título/nome/caminho,
+e somente documentos selecionados entram em `translate_html`. Como a cópia final
+do EPUB substitui apenas documentos traduzidos, capítulos fora da seleção são
+preservados com o conteúdo original.
+
 No modo comum, o Ayvu também oferece salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`, sem sobrescrever relatórios anteriores. O relatório Markdown repete o resumo de glossário e inclui seções com termos aplicados e avisos quando existirem.
 
 ## 16. Bug crítico: EPUB com tela branca

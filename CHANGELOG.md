@@ -65,6 +65,9 @@ lancadas e secoes versionadas quando uma release for publicada.
 - Traducao em batch no comando `translate`, aceitando multiplos EPUBs,
   `--output-dir`, relatorios Markdown por livro e `--continue-on-error` para
   seguir processando apos falhas.
+- Opcao `--chapters` no comando `translate` para traduzir apenas capitulos
+  selecionados por indice, faixa ou padrao, preservando os demais capitulos sem
+  mudancas.
 
 ### Atualizado
 

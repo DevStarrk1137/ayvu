@@ -21,6 +21,8 @@ from .config import (
     default_glossaries_dir,
 )
 from .domain import (
+    ChapterSelection,
+    ChapterSelectionError,
     LanguagePair,
     OutputPlan,
     TranslationOptions,
@@ -30,11 +32,13 @@ from .domain import (
 )
 from .epub_io import (
     ReviewApplyReport,
+    SelectedChapter,
     TranslationReport,
     apply_reviewed_epub,
     detect_epub_language,
     extract_markdown,
     inspect_epub,
+    resolve_chapter_selection,
     translate_epub,
 )
 from .glossary import (
@@ -276,6 +280,11 @@ def translate(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Process without writing translated EPUB."),
     fail_fast: bool = typer.Option(False, "--fail-fast", help="Stop at the first chapter/text error."),
+    chapters: Optional[str] = typer.Option(
+        None,
+        "--chapters",
+        help="Translate only selected chapters, e.g. '1-3,5,*chapter2*'.",
+    ),
     continue_on_error: bool = typer.Option(
         False,
         "--continue-on-error",
@@ -308,6 +317,7 @@ def translate(
         mode=mode,
     )
     resolved_output_dir = _resolve_translation_output_dir(output_dir, mode=mode)
+    chapter_selection = _parse_chapter_selection(chapters, mode=mode)
 
     if len(epub_list) > 1:
         _run_batch_translation(
@@ -322,6 +332,7 @@ def translate(
             profile_name=profile_name,
             dry_run=dry_run,
             fail_fast=fail_fast,
+            chapter_selection=chapter_selection,
             continue_on_error=continue_on_error,
             overwrite=overwrite,
             timeout=timeout,
@@ -348,6 +359,7 @@ def translate(
         profile_name=profile_name,
         dry_run=dry_run,
         fail_fast=fail_fast,
+        chapter_selection=chapter_selection,
         overwrite=overwrite,
         timeout=timeout,
         retries=retries,
@@ -488,6 +500,63 @@ def _resolve_glossary_path(
     return default_glossaries_dir() / profile_glossary
 
 
+def _parse_chapter_selection(value: str | None, mode: UserMode) -> ChapterSelection | None:
+    if value is None:
+        return None
+    try:
+        return ChapterSelection.parse(value)
+    except ChapterSelectionError as exc:
+        _print_expected_error(
+            "Seleção de capítulos inválida.",
+            "Use índices 1-based, faixas e padrões separados por vírgula, por exemplo --chapters '1-3,5,*chapter2*'.",
+            mode,
+            detail=str(exc),
+        )
+        raise typer.Exit(code=1) from exc
+
+
+def _resolve_chapter_selection_for_display(
+    epub_path: Path,
+    selection: ChapterSelection,
+    options: TranslationOptions,
+    mode: UserMode,
+) -> list[SelectedChapter]:
+    try:
+        return resolve_chapter_selection(
+            epub_path,
+            selection,
+            translate_metadata=options.translate_metadata,
+            max_documents=options.max_documents,
+        )
+    except ChapterSelectionError as exc:
+        _print_expected_error(
+            "Nenhum capítulo corresponde à seleção informada.",
+            "Confira --chapters e use índices 1-based, faixas ou padrões que existam no EPUB.",
+            mode,
+            detail=str(exc),
+        )
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        _print_epub_read_error(str(exc), mode)
+        raise typer.Exit(code=1) from exc
+
+
+def _print_selected_chapters(chapters: list[SelectedChapter]) -> None:
+    table = Table(title="Selected chapters")
+    table.add_column("#")
+    table.add_column("Name")
+    table.add_column("Title")
+    table.add_column("Archive path")
+    for chapter in chapters:
+        table.add_row(
+            str(chapter.index),
+            chapter.name,
+            chapter.title or "-",
+            chapter.archive_path,
+        )
+    console.print(table)
+
+
 def _validate_translate_command_options(
     epub_paths: list[Path],
     output: Path | None,
@@ -560,6 +629,7 @@ def _run_translation(
     profile_name: str | None,
     dry_run: bool,
     fail_fast: bool,
+    chapter_selection: ChapterSelection | None,
     overwrite: bool,
     timeout: float,
     retries: int,
@@ -593,7 +663,16 @@ def _run_translation(
         chunk_limit=chunk_limit,
         translate_metadata=translate_metadata,
         translate_alt_text=translate_alt_text,
+        chapter_selection=chapter_selection,
     )
+    if chapter_selection is not None:
+        selected_chapters = _resolve_chapter_selection_for_display(
+            epub_path=epub_path,
+            selection=chapter_selection,
+            options=translation_options,
+            mode=mode,
+        )
+        _print_selected_chapters(selected_chapters)
     output_plan = OutputPlan.for_translation(
         epub_path,
         output,
@@ -731,6 +810,7 @@ def _run_batch_translation(
     profile_name: str | None,
     dry_run: bool,
     fail_fast: bool,
+    chapter_selection: ChapterSelection | None,
     continue_on_error: bool,
     overwrite: bool,
     timeout: float,
@@ -769,6 +849,7 @@ def _run_batch_translation(
                 profile_name=profile_name,
                 dry_run=dry_run,
                 fail_fast=fail_fast,
+                chapter_selection=chapter_selection,
                 overwrite=overwrite,
                 timeout=timeout,
                 retries=retries,
@@ -1433,6 +1514,7 @@ def _run_guided_translation(config: AyvuConfig) -> None:
         profile_name=profile_name,
         dry_run=False,
         fail_fast=False,
+        chapter_selection=None,
         overwrite=False,
         timeout=30.0,
         retries=2,
@@ -2104,6 +2186,7 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
             profile_name=None,
             dry_run=False,
             fail_fast=state.fail_fast,
+            chapter_selection=_parse_chapter_selection(state.chapter_selection, mode=mode),
             overwrite=state.overwrite,
             timeout=state.timeout,
             retries=state.retries,
