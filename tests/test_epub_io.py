@@ -1,3 +1,4 @@
+import csv
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
 
@@ -15,6 +16,7 @@ from ayvu.epub_io import (
     _get_opf_archive_path,
     _navigation_document_entries,
     _opf_base_path,
+    apply_reviewed_epub,
     detect_epub_language,
     extract_markdown,
     inspect_epub,
@@ -22,6 +24,8 @@ from ayvu.epub_io import (
     translate_epub,
 )
 from ayvu.glossary import GLOSSARY_RULE_FORBIDDEN, GLOSSARY_RULE_PRESERVE, Glossary, GlossaryEntry
+from ayvu.review_export import REVIEW_CSV_COLUMNS, write_review_csv
+from ayvu.review_import import ReviewImportData, ReviewRow, read_review_csv
 
 
 class FakeBook:
@@ -440,3 +444,117 @@ def test_translate_epub_reports_glossary_usage(minimal_epub_path: Path, tmp_path
     assert report.glossary_usage.required_terms_present["PT:Hello reader"] == 1
     assert report.glossary_usage.required_terms_missing == ["Missing Term"]
     assert report.glossary_usage.forbidden_terms_found["PT:Chapter Two"] >= 1
+
+
+def _export_review_csv(minimal_epub_path: Path, tmp_path: Path) -> Path:
+    output_path = tmp_path / "minimal-pt.epub"
+    review_segments = []
+    options = TranslationOptions(language_pair=LanguagePair(source="en", target="pt"))
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=PrefixTranslator(),
+            cache=cache,
+            options=options,
+            review_segments=review_segments,
+        )
+    return write_review_csv(tmp_path / "review.csv", review_segments)
+
+
+def _rewrite_csv(csv_path: Path, mutate) -> None:
+    with csv_path.open(encoding="utf-8", newline="") as input_file:
+        rows = list(csv.DictReader(input_file))
+    for row in rows:
+        mutate(row)
+    with csv_path.open("w", encoding="utf-8", newline="") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=list(REVIEW_CSV_COLUMNS))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def test_apply_reviewed_epub_applies_reviewed_translation(minimal_epub_path: Path, tmp_path: Path):
+    csv_path = _export_review_csv(minimal_epub_path, tmp_path)
+
+    def review_paragraph(row: dict) -> None:
+        if "Hello reader" in row["original"]:
+            row["translated"] = "REVISADO leitor."
+
+    _rewrite_csv(csv_path, review_paragraph)
+
+    output_path = tmp_path / "minimal-reviewed.epub"
+    report = apply_reviewed_epub(minimal_epub_path, output_path, read_review_csv(csv_path))
+
+    chapter = _read_chapter_one(output_path)
+    assert "REVISADO leitor." in chapter
+    assert report.applied >= 1
+    assert report.inconsistent == []
+    assert report.missing_in_epub == []
+    # Original EPUB is never modified (its English text is split by an inline link).
+    original_chapter = _read_chapter_one(minimal_epub_path)
+    assert "Hello reader. Visit" in original_chapter
+    assert "chapter two</a>" in original_chapter
+
+
+def test_apply_reviewed_epub_reports_inconsistent_when_original_changed(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    csv_path = _export_review_csv(minimal_epub_path, tmp_path)
+
+    def tamper_paragraph(row: dict) -> None:
+        if "Hello reader" in row["original"]:
+            row["original"] = "Different source text."
+            row["translated"] = "Nao deve ser aplicado."
+
+    _rewrite_csv(csv_path, tamper_paragraph)
+
+    output_path = tmp_path / "minimal-reviewed.epub"
+    report = apply_reviewed_epub(minimal_epub_path, output_path, read_review_csv(csv_path))
+
+    assert "c0001-s0003" in report.inconsistent
+    assert "Nao deve ser aplicado." not in _read_chapter_one(output_path)
+
+
+def test_apply_reviewed_epub_reports_unknown_document(minimal_epub_path: Path, tmp_path: Path):
+    review = ReviewImportData(
+        rows=(
+            ReviewRow(
+                segment_id="c0001-s0001",
+                document_path="OEBPS/text/ghost.xhtml",
+                original="Whatever",
+                translated="Tanto faz",
+            ),
+        ),
+        duplicate_ids=(),
+    )
+
+    output_path = tmp_path / "minimal-reviewed.epub"
+    report = apply_reviewed_epub(minimal_epub_path, output_path, review)
+
+    assert report.unknown_documents == ["OEBPS/text/ghost.xhtml"]
+    assert report.applied == 0
+    assert output_path.exists()
+
+
+def test_apply_reviewed_epub_reports_missing_segment_index(minimal_epub_path: Path, tmp_path: Path):
+    csv_path = _export_review_csv(minimal_epub_path, tmp_path)
+    data = read_review_csv(csv_path)
+    document_path = next(row.document_path for row in data.rows if row.segment_id == "c0001-s0001")
+
+    review = ReviewImportData(
+        rows=(
+            ReviewRow(
+                segment_id="c0001-s9999",
+                document_path=document_path,
+                original="Out of range",
+                translated="Fora de alcance",
+            ),
+        ),
+        duplicate_ids=(),
+    )
+
+    output_path = tmp_path / "minimal-reviewed.epub"
+    report = apply_reviewed_epub(minimal_epub_path, output_path, review)
+
+    assert "c0001-s9999" in report.missing_in_epub

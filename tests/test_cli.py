@@ -15,12 +15,12 @@ from ayvu.cli import (
     app,
 )
 from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions, UserMode
-from ayvu.epub_io import TranslationReport
+from ayvu.epub_io import ReviewApplyReport, TranslationReport
 from ayvu.glossary import GlossaryUsage
 from ayvu.library import LibraryOpenError
 from ayvu.preflight import PreflightError
 from ayvu.resume import COMPLETED_STATUS, ResumeStateStore, TranslationResumeState
-from ayvu.review_export import ReviewSegment
+from ayvu.review_export import ReviewSegment, write_review_csv
 from ayvu.translator import TranslatorError, TranslatorLanguage
 from ayvu.validation import ValidationResult
 
@@ -2096,3 +2096,101 @@ def test_translate_common_mode_warns_about_intermediate_route(
     assert "A tradução passará por 2 etapas" in result.output
     assert "fr -> en -> pt" in result.output
     assert "qualidade pode ficar comprometida" in result.output
+
+
+def _write_review_csv_file(path: Path, target: str = "pt") -> Path:
+    segment = ReviewSegment(
+        segment_id="c0001-s0001",
+        source_epub="book.epub",
+        output_epub="book-pt.epub",
+        chapter_index=1,
+        chapter_name="text/chapter.xhtml",
+        document_name="text/chapter.xhtml",
+        document_path="OEBPS/text/chapter.xhtml",
+        segment_kind="text",
+        source_language="en",
+        target_language=target,
+        original="Hello reader.",
+        translated="Ola leitor.",
+    )
+    return write_review_csv(path, [segment])
+
+
+def test_apply_review_command_reports_and_saves_epub(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_bytes(b"fake epub")
+    review_path = _write_review_csv_file(tmp_path / "review.csv")
+
+    captured: dict[str, object] = {}
+
+    def fake_apply(input_path: Path, output_path: Path, review: object) -> ReviewApplyReport:
+        captured["output"] = output_path
+        return ReviewApplyReport(
+            input_path=input_path,
+            output_path=output_path,
+            source_language="en",
+            target_language="pt",
+            applied=2,
+            untranslated=1,
+            inconsistent=["c0001-s0005"],
+            missing_in_epub=["c0002-s0009"],
+            duplicated=["c0001-s0003"],
+            unknown_documents=["OEBPS/ghost.xhtml"],
+        )
+
+    monkeypatch.setattr("ayvu.cli.apply_reviewed_epub", fake_apply)
+    monkeypatch.setattr(
+        "ayvu.cli.validate_output_epub",
+        lambda _path, on_progress=None: ValidationResult(ok=True, document_count=1),
+    )
+
+    result = runner.invoke(app, ["apply-review", str(epub_path), str(review_path)])
+
+    assert result.exit_code == 0
+    assert "Segments applied" in result.output
+    assert "Inconsistent segments (original changed):" in result.output
+    assert "c0001-s0005" in result.output
+    assert "had no reviewed translation" in result.output
+    assert "Reviewed EPUB saved to:" in result.output
+    # Default output is derived from the input stem and the CSV target language.
+    assert captured["output"] == tmp_path / "book-pt-reviewed.epub"
+    assert "Traceback" not in result.output
+
+
+def test_apply_review_command_rejects_existing_output_without_overwrite(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_bytes(b"fake epub")
+    review_path = _write_review_csv_file(tmp_path / "review.csv")
+    output_path = tmp_path / "book-pt-reviewed.epub"
+    output_path.write_bytes(b"already here")
+
+    def fail_apply(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("apply should not run when output already exists")
+
+    monkeypatch.setattr("ayvu.cli.apply_reviewed_epub", fail_apply)
+
+    result = runner.invoke(app, ["apply-review", str(epub_path), str(review_path)])
+
+    assert result.exit_code == 1
+    assert "Arquivo de saída já existe." in result.output
+    assert "Use --overwrite" in result.output
+    assert output_path.read_bytes() == b"already here"
+    assert "Traceback" not in result.output
+
+
+def test_apply_review_command_reports_unreadable_review_file(tmp_path, monkeypatch):
+    epub_path = tmp_path / "book.epub"
+    epub_path.write_bytes(b"fake epub")
+    broken_csv = tmp_path / "broken.csv"
+    broken_csv.write_text("segment_id,translated\nc0001-s0001,x\n", encoding="utf-8")
+
+    def fail_apply(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("apply should not run when CSV is malformed")
+
+    monkeypatch.setattr("ayvu.cli.apply_reviewed_epub", fail_apply)
+
+    result = runner.invoke(app, ["apply-review", str(epub_path), str(broken_csv)])
+
+    assert result.exit_code == 1
+    assert "Não foi possível ler o arquivo de revisão." in result.output
+    assert "Traceback" not in result.output

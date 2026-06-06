@@ -17,11 +17,20 @@ from .html_translate import (
     HtmlTranslatedSegment,
     HtmlTranslationStats,
     TextTranslationResult,
+    apply_reviewed_html,
     extract_visible_text,
     translate_html,
     translate_text,
 )
-from .review_export import ReviewSegment
+from .review_export import (
+    METADATA_CHAPTER_NAME,
+    METADATA_SEGMENT_ID,
+    METADATA_SEGMENT_KIND,
+    ReviewSegment,
+    format_segment_id,
+    parse_segment_id,
+)
+from .review_import import ReviewImportData, ReviewRow
 from .translator import Translator
 
 
@@ -301,6 +310,171 @@ def extract_markdown(input_path: str | Path, output_dir: str | Path) -> list[Pat
     return written
 
 
+@dataclass
+class ReviewApplyReport:
+    input_path: Path | None = None
+    output_path: Path | None = None
+    source_language: str = ""
+    target_language: str = ""
+    applied: int = 0
+    untranslated: int = 0
+    inconsistent: list[str] = field(default_factory=list)
+    missing_in_epub: list[str] = field(default_factory=list)
+    duplicated: list[str] = field(default_factory=list)
+    unknown_documents: list[str] = field(default_factory=list)
+    invalid_ids: list[str] = field(default_factory=list)
+
+    @property
+    def has_warnings(self) -> bool:
+        return bool(
+            self.untranslated
+            or self.inconsistent
+            or self.missing_in_epub
+            or self.duplicated
+            or self.unknown_documents
+            or self.invalid_ids
+        )
+
+
+def apply_reviewed_epub(
+    input_path: str | Path,
+    output_path: str | Path,
+    review: ReviewImportData,
+) -> ReviewApplyReport:
+    """Rebuild a translated EPUB from a reviewed CSV without touching the input.
+
+    Walks the original EPUB with the same run logic as translation so segment
+    indices line up with the review export, validates each segment's original
+    text against the CSV, and applies the reviewed translations. Missing,
+    duplicated, inconsistent and unknown segments are reported instead of
+    aborting; segments without a reviewed translation stay in the source
+    language.
+    """
+    source_path = Path(input_path)
+    destination_path = Path(output_path)
+    report = ReviewApplyReport(
+        input_path=source_path,
+        output_path=destination_path,
+        source_language=review.source_language,
+        target_language=review.target_language,
+        duplicated=list(review.duplicate_ids),
+    )
+
+    opf_archive_path = _get_opf_archive_path(source_path)
+    metadata_rows, document_groups = _group_review_rows(review.rows, report)
+    replacements = EpubReplacements()
+
+    with ZipFile(source_path, "r") as source_epub:
+        archive_names = set(source_epub.namelist())
+
+        if metadata_rows:
+            _apply_metadata_review(
+                metadata_rows[0],
+                source_epub=source_epub,
+                opf_archive_path=opf_archive_path,
+                archive_names=archive_names,
+                replacements=replacements,
+                report=report,
+            )
+
+        for document_path, rows_by_index in document_groups.items():
+            if document_path not in archive_names:
+                report.unknown_documents.append(document_path)
+                continue
+            replacements.add(
+                document_path,
+                _apply_document_review(
+                    source_epub.read(document_path),
+                    rows_by_index=rows_by_index,
+                    report=report,
+                ),
+            )
+
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    _copy_epub_with_replacements(source_path, destination_path, replacements)
+    return report
+
+
+def _group_review_rows(
+    rows: tuple[ReviewRow, ...],
+    report: ReviewApplyReport,
+) -> tuple[list[ReviewRow], dict[str, dict[int, ReviewRow]]]:
+    metadata_rows: list[ReviewRow] = []
+    groups: dict[str, dict[int, ReviewRow]] = {}
+    for row in rows:
+        location = parse_segment_id(row.segment_id) if row.segment_id else None
+        if location is None:
+            report.invalid_ids.append(row.segment_id or "(empty)")
+            continue
+        if location.is_metadata:
+            metadata_rows.append(row)
+            continue
+        if not row.document_path or location.segment_index is None:
+            report.invalid_ids.append(row.segment_id)
+            continue
+        groups.setdefault(row.document_path, {})[location.segment_index] = row
+    return metadata_rows, groups
+
+
+def _apply_document_review(
+    content: bytes,
+    rows_by_index: dict[int, ReviewRow],
+    report: ReviewApplyReport,
+) -> bytes:
+    consumed: set[int] = set()
+
+    def resolve(index: int, _kind: str, original: str) -> str | None:
+        row = rows_by_index.get(index)
+        if row is None:
+            report.untranslated += 1
+            return None
+        consumed.add(index)
+        if row.original.strip() != original.strip():
+            report.inconsistent.append(row.segment_id)
+            return None
+        report.applied += 1
+        return row.translated
+
+    new_content, _stats = apply_reviewed_html(content, resolve)
+
+    for index, row in rows_by_index.items():
+        if index not in consumed:
+            report.missing_in_epub.append(row.segment_id)
+
+    return new_content
+
+
+def _apply_metadata_review(
+    row: ReviewRow,
+    source_epub: ZipFile,
+    opf_archive_path: str | None,
+    archive_names: set[str],
+    replacements: EpubReplacements,
+    report: ReviewApplyReport,
+) -> None:
+    if opf_archive_path is None or opf_archive_path not in archive_names:
+        report.missing_in_epub.append(row.segment_id)
+        return
+
+    opf_content = source_epub.read(opf_archive_path)
+    root = ET.fromstring(opf_content)
+    title = _first_metadata_title(root)
+    if title is None or title.text is None or not title.text.strip():
+        report.missing_in_epub.append(row.segment_id)
+        return
+
+    if row.original.strip() != title.text.strip():
+        report.inconsistent.append(row.segment_id)
+        return
+
+    title.text = row.translated
+    report.applied += 1
+    replacements.add(
+        opf_archive_path,
+        ET.tostring(root, encoding="utf-8", xml_declaration=_has_xml_declaration(opf_content)),
+    )
+
+
 def _clean_extracted_text(text: str) -> str:
     lines = [line.strip() for line in text.splitlines()]
     clean_lines = [line for line in lines if line]
@@ -423,14 +597,14 @@ def _metadata_review_callback(
     def append_metadata_segment(original: str, result: TextTranslationResult) -> None:
         review_segments.append(
             ReviewSegment(
-                segment_id="metadata-title",
+                segment_id=METADATA_SEGMENT_ID,
                 source_epub=str(source_path),
                 output_epub=str(destination_path),
                 chapter_index=0,
-                chapter_name="metadata",
+                chapter_name=METADATA_CHAPTER_NAME,
                 document_name=opf_archive_path,
                 document_path=opf_archive_path,
-                segment_kind="metadata_title",
+                segment_kind=METADATA_SEGMENT_KIND,
                 source_language=options.source,
                 target_language=options.target,
                 original=original,
@@ -452,7 +626,7 @@ def _review_segment_for_document(
     options: TranslationOptions,
 ) -> ReviewSegment:
     return ReviewSegment(
-        segment_id=_review_segment_id(chapter_index, segment_index),
+        segment_id=format_segment_id(chapter_index, segment_index),
         source_epub=str(source_path),
         output_epub=str(destination_path),
         chapter_index=chapter_index,
@@ -466,10 +640,6 @@ def _review_segment_for_document(
         translated=segment.translated,
         from_cache=segment.from_cache,
     )
-
-
-def _review_segment_id(chapter_index: int, segment_index: int) -> str:
-    return f"c{chapter_index:04d}-s{segment_index:04d}"
 
 
 def _translate_opf_title(
