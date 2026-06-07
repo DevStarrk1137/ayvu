@@ -1,4 +1,5 @@
 import csv
+import threading
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
 
@@ -200,6 +201,60 @@ def test_translate_epub_translates_minimal_generated_epub_without_mutating_input
     # The paragraph is translated as one block, keeping the inline link and its text.
     assert '<a href="chapter2.xhtml#answer">chapter two</a>' in chapter
     assert "../images/pixel.png" in chapter
+
+
+def test_translate_epub_parallel_workers_preserves_order_and_review_segments(
+    minimal_epub_path: Path,
+    tmp_path: Path,
+):
+    output_path = tmp_path / "minimal-pt.epub"
+    cache_path = tmp_path / "cache.sqlite"
+    translator_ids: list[int] = []
+    translator_lock = threading.Lock()
+    review_segments = []
+    statuses: list[str] = []
+    options = TranslationOptions(
+        language_pair=LanguagePair(source="en", target="pt"),
+        workers=2,
+    )
+
+    def translator_factory() -> PrefixTranslator:
+        with translator_lock:
+            translator_ids.append(len(translator_ids) + 1)
+        return PrefixTranslator()
+
+    with TranslationCache(cache_path) as cache:
+        report = translate_epub(
+            minimal_epub_path,
+            output_path,
+            translator=PrefixTranslator(),
+            cache=cache,
+            options=options,
+            review_segments=review_segments,
+            on_text_processed=statuses.append,
+            translator_factory=translator_factory,
+            cache_factory=lambda: TranslationCache(cache_path),
+        )
+
+    assert output_path.exists()
+    assert report.errors == []
+    assert report.chapters_processed >= 2
+    assert len(translator_ids) == report.chapters_processed
+    assert statuses
+    assert [segment.chapter_index for segment in review_segments] == sorted(
+        segment.chapter_index for segment in review_segments
+    )
+    assert {segment.chapter_index for segment in review_segments} >= {1, 2}
+
+    with ZipFile(output_path) as output_epub:
+        names = output_epub.namelist()
+        chapter_one_name = next(name for name in names if name.endswith("text/chapter1.xhtml"))
+        chapter_two_name = next(name for name in names if name.endswith("text/chapter2.xhtml"))
+        chapter_one = output_epub.read(chapter_one_name).decode("utf-8")
+        chapter_two = output_epub.read(chapter_two_name).decode("utf-8")
+
+    assert "PT:Hello reader. Visit" in chapter_one
+    assert "PT:Goodbye reader." in chapter_two
 
 
 def test_translate_epub_cache_only_reuses_cache_without_calling_translator(

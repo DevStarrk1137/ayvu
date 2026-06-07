@@ -524,6 +524,11 @@ def translate(
         help="Also translate the alt text of images. Text inside images (OCR) is out of scope.",
     ),
     chunk_limit: int = typer.Option(3000, "--chunk-limit", help="Maximum characters sent per request."),
+    workers: int = typer.Option(
+        1,
+        "--workers",
+        help="Number of parallel document workers. Defaults to 1 for conservative sequential execution.",
+    ),
     cache_only: bool = typer.Option(
         False,
         "--cache-only",
@@ -580,6 +585,7 @@ def translate(
         suggest_threshold=tm_suggest_threshold,
         mode=mode,
     )
+    _validate_worker_options(workers=workers, translation_memory=tm_options, mode=mode)
 
     if len(epub_list) > 1:
         _run_batch_translation(
@@ -603,6 +609,7 @@ def translate(
             retry_backoff=retry_backoff,
             retry_backoff_max=retry_backoff_max,
             chunk_limit=chunk_limit,
+            workers=workers,
             mode=mode,
             config=config,
             translate_metadata=translate_metadata,
@@ -635,6 +642,7 @@ def translate(
         retry_backoff=retry_backoff,
         retry_backoff_max=retry_backoff_max,
         chunk_limit=chunk_limit,
+        workers=workers,
         mode=mode,
         config=config,
         translate_metadata=translate_metadata,
@@ -1080,6 +1088,29 @@ def _build_translation_memory_options(
     return options
 
 
+def _validate_worker_options(
+    workers: int,
+    translation_memory: TranslationMemoryOptions | None,
+    mode: UserMode,
+) -> None:
+    if workers < 1:
+        _print_expected_error(
+            "Quantidade de workers inválida.",
+            "Use --workers com valor 1 ou maior.",
+            mode,
+            detail=f"--workers {workers}",
+        )
+        raise typer.Exit(code=1)
+
+    if workers > 1 and translation_memory is not None:
+        _print_expected_error(
+            "--workers é incompatível com --translation-memory nesta versão.",
+            "Use --workers 1 com --translation-memory, ou remova --translation-memory para executar em paralelo.",
+            mode,
+        )
+        raise typer.Exit(code=1)
+
+
 def _resolve_translation_output_dir(output_dir: Path | None, mode: UserMode) -> Path | None:
     if output_dir is None:
         return None
@@ -1117,6 +1148,7 @@ def _run_translation(
     retry_backoff: float,
     retry_backoff_max: float,
     chunk_limit: int,
+    workers: int,
     mode: UserMode,
     config: AyvuConfig | None = None,
     translate_metadata: bool = False,
@@ -1148,6 +1180,7 @@ def _run_translation(
         dry_run=dry_run,
         fail_fast=fail_fast,
         chunk_limit=chunk_limit,
+        workers=workers,
         translate_metadata=translate_metadata,
         translate_alt_text=translate_alt_text,
         chapter_selection=chapter_selection,
@@ -1269,6 +1302,8 @@ def _run_translation(
                     on_chapter_done=on_chapter_done,
                     on_text_processed=progress_view.text_processed,
                     review_segments=review_segments,
+                    translator_factory=getattr(preflight, "translator_factory", None),
+                    cache_factory=lambda: TranslationCache(cache_path),
                 )
     except KeyboardInterrupt as exc:
         _print_interrupted_translation(
@@ -1352,6 +1387,7 @@ def _run_batch_translation(
     retry_backoff: float,
     retry_backoff_max: float,
     chunk_limit: int,
+    workers: int,
     mode: UserMode,
     config: AyvuConfig,
     translate_metadata: bool = False,
@@ -1396,6 +1432,7 @@ def _run_batch_translation(
                 retry_backoff=retry_backoff,
                 retry_backoff_max=retry_backoff_max,
                 chunk_limit=chunk_limit,
+                workers=workers,
                 mode=mode,
                 config=config,
                 translate_metadata=translate_metadata,
@@ -2084,6 +2121,7 @@ def _run_guided_translation(config: AyvuConfig) -> None:
         retry_backoff=DEFAULT_RETRY_BACKOFF,
         retry_backoff_max=DEFAULT_RETRY_BACKOFF_MAX,
         chunk_limit=3000,
+        workers=1,
         mode=UserMode.COMMON,
         config=config,
     )
@@ -2760,6 +2798,7 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
             retry_backoff=state.retry_backoff,
             retry_backoff_max=state.retry_backoff_max,
             chunk_limit=state.chunk_limit,
+            workers=state.workers,
             mode=mode,
             translate_metadata=state.translate_metadata,
             translate_alt_text=state.translate_alt_text,

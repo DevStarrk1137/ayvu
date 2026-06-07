@@ -52,6 +52,7 @@ class TranslationResumeState:
     timeout: float
     retries: int
     chunk_limit: int
+    workers: int
     translate_metadata: bool
     translate_alt_text: bool
     chapter_selection: str | None
@@ -104,6 +105,7 @@ class TranslationResumeState:
             timeout=timeout,
             retries=retries,
             chunk_limit=options.chunk_limit,
+            workers=options.workers,
             translate_metadata=options.translate_metadata,
             translate_alt_text=options.translate_alt_text,
             chapter_selection=options.chapter_selection.source if options.chapter_selection else None,
@@ -153,6 +155,7 @@ class TranslationResumeState:
             timeout=_required_number(data, "timeout"),
             retries=_required_int(data, "retries"),
             chunk_limit=_required_int(data, "chunk_limit"),
+            workers=_optional_int_default(data, "workers", default=1),
             translate_metadata=_optional_bool(data, "translate_metadata", default=False),
             translate_alt_text=_optional_bool(data, "translate_alt_text", default=False),
             chapter_selection=_optional_text(data, "chapter_selection"),

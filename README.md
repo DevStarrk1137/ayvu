@@ -10,6 +10,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Tradução por bloco (parágrafos, títulos e listas) preservando tags internas como `em`, `strong` e links via placeholders.
 - Preservação de tags, CSS, imagens, links, sumário e nomes de arquivos internos.
 - Cache SQLite para retomar traduções interrompidas e evitar chamadas repetidas.
+- Execução paralela opcional por documento com `--workers`, mantendo `1` como padrão conservador.
 - Memória de tradução opcional para reaproveitar trechos parecidos por similaridade, com aplicação ou sugestão por limiar.
 - Checkpoints de progresso por capítulo e comando `resume` para retomar com segurança traduções longas.
 - Glossário JSON opcional e fluxo guiado para padronizar termos técnicos.
@@ -328,6 +329,20 @@ uv run ayvu translate livro.epub \
 As mesmas opções também existem em `test-translator` e `languages`, para testar o servidor com
 os controles que serão usados na tradução.
 
+Para processar vários documentos internos do EPUB em paralelo, use `--workers`.
+O padrão é `--workers 1`, que mantém a execução sequencial conservadora. Com
+`--workers` maior que `1`, o Ayvu cria uma instância de tradutor e uma conexão
+SQLite separadas por worker, aplica os resultados na ordem original dos capítulos
+e preserva a ordem do EPUB, do relatório e do CSV de revisão. Se
+`--requests-per-second` estiver ativo, o limite é compartilhado entre os workers.
+
+```bash
+uv run ayvu translate livro.epub \
+  --target pt \
+  --workers 2 \
+  --requests-per-second 2
+```
+
 Sem `--output`, o Ayvu salva por padrão em:
 
 ```text
@@ -583,6 +598,10 @@ A memória usa os mesmos pares original/traduzido já guardados no cache SQLite,
 disco. Para cada trecho novo sem correspondência exata, o Ayvu busca candidatos
 parecidos do mesmo par de idiomas e mede a similaridade. O comportamento é em
 camadas, controlado por dois limiares de similaridade (entre 0 e 1):
+
+No momento, `--translation-memory` exige `--workers 1`. Para execução paralela,
+remova `--translation-memory`; para usar memória de tradução, mantenha o padrão
+sequencial.
 
 - **Similaridade ≥ `--tm-apply-threshold`** (padrão `0.95`): a tradução guardada é
   reaproveitada direto, sem chamar o tradutor. Conta como `Texts from memory` no

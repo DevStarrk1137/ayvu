@@ -2600,6 +2600,8 @@ def test_translate_command_passes_execution_controls_to_preflight_and_resume(
             "0.25",
             "--retry-backoff-max",
             "2",
+            "--workers",
+            "3",
         ],
     )
 
@@ -2610,9 +2612,55 @@ def test_translate_command_passes_execution_controls_to_preflight_and_resume(
     assert preflight["requests_per_second"] == 3.5
     assert preflight["retry_backoff"] == 0.25
     assert preflight["retry_backoff_max"] == 2.0
+    assert calls["options"].workers == 3
     assert saved_state.requests_per_second == 3.5
     assert saved_state.retry_backoff == 0.25
     assert saved_state.retry_backoff_max == 2.0
+    assert saved_state.workers == 3
+
+
+def test_translate_command_rejects_invalid_workers(minimal_epub_path, monkeypatch):
+    def fail_preflight(**_kwargs: object) -> object:
+        raise AssertionError("preflight should not run with invalid workers")
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fail_preflight)
+
+    result = runner.invoke(
+        app,
+        ["--mode", "developer", "translate", str(minimal_epub_path), "--workers", "0"],
+    )
+
+    assert result.exit_code == 1
+    assert "Quantidade de workers inválida." in result.output
+    assert "Use --workers com valor 1 ou maior." in result.output
+    assert "Traceback" not in result.output
+
+
+def test_translate_command_rejects_parallel_workers_with_translation_memory(
+    minimal_epub_path,
+    monkeypatch,
+):
+    def fail_preflight(**_kwargs: object) -> object:
+        raise AssertionError("preflight should not run with incompatible worker options")
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fail_preflight)
+
+    result = runner.invoke(
+        app,
+        [
+            "--mode",
+            "developer",
+            "translate",
+            str(minimal_epub_path),
+            "--workers",
+            "2",
+            "--translation-memory",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--workers é incompatível com --translation-memory nesta versão." in result.output
+    assert "Traceback" not in result.output
 
 
 def test_translate_command_uses_profile_target_and_glossary(
