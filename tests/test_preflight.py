@@ -96,6 +96,44 @@ def test_preflight_dry_run_skips_translator_probe(monkeypatch, tmp_path):
     assert translator.calls == []
 
 
+def test_preflight_passes_execution_controls_to_translator_factory(monkeypatch, tmp_path):
+    translator = FakeTranslator()
+    calls: dict[str, object] = {}
+
+    def fake_create_translator(*args: object, **kwargs: object) -> FakeTranslator:
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+        return translator
+
+    monkeypatch.setattr("ayvu.preflight.create_translator", fake_create_translator)
+    monkeypatch.setattr("ayvu.preflight.inspect_epub", lambda _path: object())
+
+    run_translation_preflight(
+        epub_path=tmp_path / "book.epub",
+        cache_path=tmp_path / "cache.sqlite",
+        glossary_path=None,
+        translator_name="libretranslate",
+        url="http://localhost:5000",
+        timeout=1.0,
+        retries=0,
+        requests_per_second=3.5,
+        retry_backoff=0.25,
+        retry_backoff_max=2.0,
+        language_pair=LanguagePair(source="en", target="pt"),
+        dry_run=True,
+    )
+
+    assert calls["args"] == ("libretranslate",)
+    assert calls["kwargs"] == {
+        "url": "http://localhost:5000",
+        "timeout": 1.0,
+        "retries": 0,
+        "requests_per_second": 3.5,
+        "retry_backoff": 0.25,
+        "retry_backoff_max": 2.0,
+    }
+
+
 def test_preflight_cache_only_skips_route_resolution(monkeypatch, tmp_path):
     translator = TranslatorWithLanguages(
         (TranslatorLanguage(code="en", name="English", targets=("pt",)),)

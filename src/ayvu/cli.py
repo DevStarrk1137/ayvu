@@ -80,6 +80,8 @@ DEFAULT_TARGET_LANGUAGE = "pt"
 DEFAULT_TRANSLATOR_URL = "http://localhost:5000"
 DEFAULT_CACHE_PATH = Path(".cache/traducoes.sqlite")
 DEFAULT_PREVIEW_DOCUMENT_LIMIT = 12
+DEFAULT_RETRY_BACKOFF = 0.5
+DEFAULT_RETRY_BACKOFF_MAX = 8.0
 GUIDED_TRANSLATE_OPTION = "1"
 GUIDED_PREVIEW_OPTION = "2"
 GUIDED_LIBRARY_OPTION = "3"
@@ -198,11 +200,33 @@ def test_translator(
     target: str = typer.Option(DEFAULT_TARGET_LANGUAGE, "--target"),
     timeout: float = typer.Option(10.0, "--timeout"),
     retries: int = typer.Option(1, "--retries"),
+    requests_per_second: Optional[float] = typer.Option(
+        None,
+        "--requests-per-second",
+        help="Maximum translator HTTP requests per second. Omit for no rate limit.",
+    ),
+    retry_backoff: float = typer.Option(
+        DEFAULT_RETRY_BACKOFF,
+        "--retry-backoff",
+        help="Initial retry backoff delay in seconds.",
+    ),
+    retry_backoff_max: float = typer.Option(
+        DEFAULT_RETRY_BACKOFF_MAX,
+        "--retry-backoff-max",
+        help="Maximum retry backoff delay in seconds.",
+    ),
 ) -> None:
     """Test connectivity with the local translator."""
     mode = ctx.obj.get("mode", UserMode.DEVELOPER)
-    translator = LibreTranslateTranslator(url=url, timeout=timeout, retries=retries)
     try:
+        translator = LibreTranslateTranslator(
+            url=url,
+            timeout=timeout,
+            retries=retries,
+            requests_per_second=requests_per_second,
+            retry_backoff=retry_backoff,
+            retry_backoff_max=retry_backoff_max,
+        )
         translated = translator.translate("Hello world", source, target)
     except TranslatorError as exc:
         _print_expected_error(
@@ -221,11 +245,33 @@ def languages(
     url: str = typer.Option(DEFAULT_TRANSLATOR_URL, "--url", help="LibreTranslate base URL or /translate endpoint."),
     timeout: float = typer.Option(10.0, "--timeout"),
     retries: int = typer.Option(1, "--retries"),
+    requests_per_second: Optional[float] = typer.Option(
+        None,
+        "--requests-per-second",
+        help="Maximum translator HTTP requests per second. Omit for no rate limit.",
+    ),
+    retry_backoff: float = typer.Option(
+        DEFAULT_RETRY_BACKOFF,
+        "--retry-backoff",
+        help="Initial retry backoff delay in seconds.",
+    ),
+    retry_backoff_max: float = typer.Option(
+        DEFAULT_RETRY_BACKOFF_MAX,
+        "--retry-backoff-max",
+        help="Maximum retry backoff delay in seconds.",
+    ),
 ) -> None:
     """List languages reported by the local LibreTranslate server."""
     mode = ctx.obj.get("mode", UserMode.DEVELOPER)
-    translator = LibreTranslateTranslator(url=url, timeout=timeout, retries=retries)
     try:
+        translator = LibreTranslateTranslator(
+            url=url,
+            timeout=timeout,
+            retries=retries,
+            requests_per_second=requests_per_second,
+            retry_backoff=retry_backoff,
+            retry_backoff_max=retry_backoff_max,
+        )
         available_languages = translator.list_languages()
     except TranslatorError as exc:
         _print_expected_error(
@@ -447,7 +493,26 @@ def translate(
     ),
     overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing an existing output file."),
     timeout: float = typer.Option(30.0, "--timeout", help="Translator HTTP timeout in seconds."),
-    retries: int = typer.Option(2, "--retries", help="Simple HTTP retry count."),
+    retries: int = typer.Option(
+        2,
+        "--retries",
+        help="HTTP retry count for connection errors, timeouts, 429, and 5xx.",
+    ),
+    requests_per_second: Optional[float] = typer.Option(
+        None,
+        "--requests-per-second",
+        help="Maximum translator HTTP requests per second. Omit for no rate limit.",
+    ),
+    retry_backoff: float = typer.Option(
+        DEFAULT_RETRY_BACKOFF,
+        "--retry-backoff",
+        help="Initial retry backoff delay in seconds.",
+    ),
+    retry_backoff_max: float = typer.Option(
+        DEFAULT_RETRY_BACKOFF_MAX,
+        "--retry-backoff-max",
+        help="Maximum retry backoff delay in seconds.",
+    ),
     translate_metadata: bool = typer.Option(
         False,
         "--translate-metadata",
@@ -534,6 +599,9 @@ def translate(
             overwrite=overwrite,
             timeout=timeout,
             retries=retries,
+            requests_per_second=requests_per_second,
+            retry_backoff=retry_backoff,
+            retry_backoff_max=retry_backoff_max,
             chunk_limit=chunk_limit,
             mode=mode,
             config=config,
@@ -563,6 +631,9 @@ def translate(
         overwrite=overwrite,
         timeout=timeout,
         retries=retries,
+        requests_per_second=requests_per_second,
+        retry_backoff=retry_backoff,
+        retry_backoff_max=retry_backoff_max,
         chunk_limit=chunk_limit,
         mode=mode,
         config=config,
@@ -1042,6 +1113,9 @@ def _run_translation(
     overwrite: bool,
     timeout: float,
     retries: int,
+    requests_per_second: float | None,
+    retry_backoff: float,
+    retry_backoff_max: float,
     chunk_limit: int,
     mode: UserMode,
     config: AyvuConfig | None = None,
@@ -1116,6 +1190,9 @@ def _run_translation(
             url=url,
             timeout=timeout,
             retries=retries,
+            requests_per_second=requests_per_second,
+            retry_backoff=retry_backoff,
+            retry_backoff_max=retry_backoff_max,
             language_pair=language_pair,
             dry_run=dry_run,
             cache_only=cache_only,
@@ -1140,6 +1217,9 @@ def _run_translation(
             overwrite=overwrite,
             timeout=timeout,
             retries=retries,
+            requests_per_second=requests_per_second,
+            retry_backoff=retry_backoff,
+            retry_backoff_max=retry_backoff_max,
             processing_dir=_processing_dir(config),
         )
 
@@ -1268,6 +1348,9 @@ def _run_batch_translation(
     overwrite: bool,
     timeout: float,
     retries: int,
+    requests_per_second: float | None,
+    retry_backoff: float,
+    retry_backoff_max: float,
     chunk_limit: int,
     mode: UserMode,
     config: AyvuConfig,
@@ -1309,6 +1392,9 @@ def _run_batch_translation(
                 overwrite=overwrite,
                 timeout=timeout,
                 retries=retries,
+                requests_per_second=requests_per_second,
+                retry_backoff=retry_backoff,
+                retry_backoff_max=retry_backoff_max,
                 chunk_limit=chunk_limit,
                 mode=mode,
                 config=config,
@@ -1408,6 +1494,9 @@ def _run_preview(
     glossary_path: Path | None = None,
     timeout: float = 30.0,
     retries: int = 2,
+    requests_per_second: float | None = None,
+    retry_backoff: float = DEFAULT_RETRY_BACKOFF,
+    retry_backoff_max: float = DEFAULT_RETRY_BACKOFF_MAX,
     chunk_limit: int = 3000,
     max_documents: int = DEFAULT_PREVIEW_DOCUMENT_LIMIT,
     mode: UserMode = UserMode.DEVELOPER,
@@ -1444,6 +1533,9 @@ def _run_preview(
             url=url,
             timeout=timeout,
             retries=retries,
+            requests_per_second=requests_per_second,
+            retry_backoff=retry_backoff,
+            retry_backoff_max=retry_backoff_max,
             language_pair=language_pair,
             dry_run=False,
         )
@@ -1988,6 +2080,9 @@ def _run_guided_translation(config: AyvuConfig) -> None:
         overwrite=False,
         timeout=30.0,
         retries=2,
+        requests_per_second=None,
+        retry_backoff=DEFAULT_RETRY_BACKOFF,
+        retry_backoff_max=DEFAULT_RETRY_BACKOFF_MAX,
         chunk_limit=3000,
         mode=UserMode.COMMON,
         config=config,
@@ -2661,6 +2756,9 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
             overwrite=True,
             timeout=state.timeout,
             retries=state.retries,
+            requests_per_second=state.requests_per_second,
+            retry_backoff=state.retry_backoff,
+            retry_backoff_max=state.retry_backoff_max,
             chunk_limit=state.chunk_limit,
             mode=mode,
             translate_metadata=state.translate_metadata,
@@ -2782,6 +2880,9 @@ def _save_running_resume_state(
     overwrite: bool,
     timeout: float,
     retries: int,
+    requests_per_second: float | None,
+    retry_backoff: float,
+    retry_backoff_max: float,
     processing_dir: Path,
 ) -> tuple[ResumeStateStore, TranslationResumeState]:
     store = ResumeStateStore(processing_dir)
@@ -2796,6 +2897,9 @@ def _save_running_resume_state(
         overwrite=overwrite,
         timeout=timeout,
         retries=retries,
+        requests_per_second=requests_per_second,
+        retry_backoff=retry_backoff,
+        retry_backoff_max=retry_backoff_max,
     )
     _save_resume_state(store, state)
     return store, state

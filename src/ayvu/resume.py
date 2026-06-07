@@ -61,6 +61,9 @@ class TranslationResumeState:
     translation_memory_apply_threshold: float | None = None
     translation_memory_suggest_threshold: float | None = None
     translation_memory_max_candidates: int | None = None
+    requests_per_second: float | None = None
+    retry_backoff: float = 0.5
+    retry_backoff_max: float = 8.0
     total_chapters: int | None = None
     current_chapter: str | None = None
     completed_chapters: tuple[str, ...] = ()
@@ -80,6 +83,9 @@ class TranslationResumeState:
         overwrite: bool,
         timeout: float,
         retries: int,
+        requests_per_second: float | None = None,
+        retry_backoff: float = 0.5,
+        retry_backoff_max: float = 8.0,
     ) -> "TranslationResumeState":
         now = _utc_now()
         return cls(
@@ -113,6 +119,9 @@ class TranslationResumeState:
             translation_memory_max_candidates=(
                 options.translation_memory.max_candidates if options.translation_memory else None
             ),
+            requests_per_second=requests_per_second,
+            retry_backoff=retry_backoff,
+            retry_backoff_max=retry_backoff_max,
         )
 
     @classmethod
@@ -159,6 +168,9 @@ class TranslationResumeState:
             translation_memory_max_candidates=_optional_int_or_none(
                 data, "translation_memory_max_candidates"
             ),
+            requests_per_second=_optional_number_or_none(data, "requests_per_second"),
+            retry_backoff=_optional_number(data, "retry_backoff", default=0.5),
+            retry_backoff_max=_optional_number(data, "retry_backoff_max", default=8.0),
             total_chapters=_optional_int_or_none(data, "total_chapters"),
             current_chapter=_optional_text(data, "current_chapter"),
             completed_chapters=_optional_str_tuple(data, "completed_chapters"),
@@ -328,6 +340,15 @@ def _optional_number_or_none(data: dict[str, object], key: str) -> float | None:
     value = data[key]
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ResumeStateError(f"Resume state field {key} must be a number or null.")
+    return float(value)
+
+
+def _optional_number(data: dict[str, object], key: str, default: float) -> float:
+    if key not in data:
+        return default
+    value = data[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ResumeStateError(f"Resume state field {key} must be a number.")
     return float(value)
 
 

@@ -177,10 +177,21 @@ def test_languages_command_lists_translator_languages(monkeypatch):
     calls: dict[str, object] = {}
 
     class FakeLanguageTranslator:
-        def __init__(self, url: str, timeout: float, retries: int) -> None:
+        def __init__(
+            self,
+            url: str,
+            timeout: float,
+            retries: int,
+            requests_per_second: float | None = None,
+            retry_backoff: float = 0.5,
+            retry_backoff_max: float = 8.0,
+        ) -> None:
             calls["url"] = url
             calls["timeout"] = timeout
             calls["retries"] = retries
+            calls["requests_per_second"] = requests_per_second
+            calls["retry_backoff"] = retry_backoff
+            calls["retry_backoff_max"] = retry_backoff_max
 
         def list_languages(self) -> tuple[TranslatorLanguage, ...]:
             return (
@@ -190,10 +201,34 @@ def test_languages_command_lists_translator_languages(monkeypatch):
 
     monkeypatch.setattr("ayvu.cli.LibreTranslateTranslator", FakeLanguageTranslator)
 
-    result = runner.invoke(app, ["languages", "--url", "http://localhost:5000", "--timeout", "2", "--retries", "0"])
+    result = runner.invoke(
+        app,
+        [
+            "languages",
+            "--url",
+            "http://localhost:5000",
+            "--timeout",
+            "2",
+            "--retries",
+            "0",
+            "--requests-per-second",
+            "3.5",
+            "--retry-backoff",
+            "0.25",
+            "--retry-backoff-max",
+            "2",
+        ],
+    )
 
     assert result.exit_code == 0
-    assert calls == {"url": "http://localhost:5000", "timeout": 2.0, "retries": 0}
+    assert calls == {
+        "url": "http://localhost:5000",
+        "timeout": 2.0,
+        "retries": 0,
+        "requests_per_second": 3.5,
+        "retry_backoff": 0.25,
+        "retry_backoff_max": 2.0,
+    }
     assert "LibreTranslate languages" in result.output
     assert "Portuguese" in result.output
     assert "pt" in result.output
@@ -2539,6 +2574,45 @@ def test_translate_explicit_source_overrides_epub_metadata(minimal_epub_path, tm
     assert result.exit_code == 0
     assert calls["options"].source == "fr"
     assert "inferido do EPUB" not in result.output
+
+
+def test_translate_command_passes_execution_controls_to_preflight_and_resume(
+    minimal_epub_path,
+    tmp_path,
+    monkeypatch,
+):
+    processing_dir = tmp_path / "Processando"
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: processing_dir)
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(
+        app,
+        [
+            "--mode",
+            "developer",
+            "translate",
+            str(minimal_epub_path),
+            "--requests-per-second",
+            "3.5",
+            "--retry-backoff",
+            "0.25",
+            "--retry-backoff-max",
+            "2",
+        ],
+    )
+
+    preflight = calls["preflight"]
+    state_paths = list(processing_dir.glob("*.ayvu-state.json"))
+    saved_state = ResumeStateStore(processing_dir).load(state_paths[0])
+    assert result.exit_code == 0
+    assert preflight["requests_per_second"] == 3.5
+    assert preflight["retry_backoff"] == 0.25
+    assert preflight["retry_backoff_max"] == 2.0
+    assert saved_state.requests_per_second == 3.5
+    assert saved_state.retry_backoff == 0.25
+    assert saved_state.retry_backoff_max == 2.0
 
 
 def test_translate_command_uses_profile_target_and_glossary(

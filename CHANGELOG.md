@@ -35,6 +35,9 @@ lancadas e secoes versionadas quando uma release for publicada.
 - Memoria de traducao opcional (`--translation-memory`) que reaproveita trechos
   parecidos por similaridade, com aplicacao acima de `--tm-apply-threshold` e
   sugestao de revisao entre `--tm-suggest-threshold` e `--tm-apply-threshold`.
+- Controles de execucao do tradutor com `--requests-per-second`,
+  `--retry-backoff` e `--retry-backoff-max`, incluindo retry de HTTP `429` e
+  HTTP `5xx` com backoff exponencial.
 - Estado local de retomada em `~/Documentos/Livros/Processando` ou na pasta de
   processamento configurada.
 - Checkpoints de progresso no estado de retomada, atualizados a cada capitulo com
