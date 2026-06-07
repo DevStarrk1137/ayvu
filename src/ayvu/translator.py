@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -165,6 +166,7 @@ class RetryPolicy:
 class RequestRateLimiter:
     requests_per_second: float | None = None
     _last_request_at: float | None = field(default=None, init=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.requests_per_second is not None and self.requests_per_second <= 0:
@@ -174,20 +176,21 @@ class RequestRateLimiter:
         if self.requests_per_second is None:
             return
 
-        interval = 1.0 / self.requests_per_second
-        now = time.monotonic()
-        if self._last_request_at is None:
+        with self._lock:
+            interval = 1.0 / self.requests_per_second
+            now = time.monotonic()
+            if self._last_request_at is None:
+                self._last_request_at = now
+                return
+
+            next_request_at = self._last_request_at + interval
+            delay = next_request_at - now
+            if delay > 0:
+                time.sleep(delay)
+                self._last_request_at = next_request_at
+                return
+
             self._last_request_at = now
-            return
-
-        next_request_at = self._last_request_at + interval
-        delay = next_request_at - now
-        if delay > 0:
-            time.sleep(delay)
-            self._last_request_at = next_request_at
-            return
-
-        self._last_request_at = now
 
 
 class LibreTranslateResponseParser:
@@ -240,6 +243,7 @@ class LibreTranslateTranslator(Translator):
     requests_per_second: float | None = None
     retry_backoff: float = 0.5
     retry_backoff_max: float = 8.0
+    rate_limiter: RequestRateLimiter | None = None
 
     def __post_init__(self) -> None:
         self.endpoint = self._normalize_endpoint(self.url)
@@ -249,7 +253,7 @@ class LibreTranslateTranslator(Translator):
             backoff=self.retry_backoff,
             max_backoff=self.retry_backoff_max,
         )
-        self.rate_limiter = RequestRateLimiter(self.requests_per_second)
+        self.rate_limiter = self.rate_limiter or RequestRateLimiter(self.requests_per_second)
         self.response_parser = LibreTranslateResponseParser()
 
     def translate(self, text: str, source: str, target: str) -> str:
@@ -377,6 +381,7 @@ def create_translator(
     requests_per_second: float | None = None,
     retry_backoff: float = 0.5,
     retry_backoff_max: float = 8.0,
+    rate_limiter: RequestRateLimiter | None = None,
 ) -> Translator:
     if name != "libretranslate":
         supported = ", ".join(SUPPORTED_TRANSLATORS)
@@ -388,4 +393,5 @@ def create_translator(
         requests_per_second=requests_per_second,
         retry_backoff=retry_backoff,
         retry_backoff_max=retry_backoff_max,
+        rate_limiter=rate_limiter,
     )

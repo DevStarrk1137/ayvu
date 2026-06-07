@@ -211,6 +211,7 @@ class TranslationOptions:
     dry_run: bool = False
     fail_fast: bool = False
     chunk_limit: int = 3000
+    workers: int = 1
     max_documents: int | None = None
     translate_metadata: bool = False
     translate_alt_text: bool = False

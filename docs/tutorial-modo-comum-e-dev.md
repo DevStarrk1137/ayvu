@@ -283,7 +283,8 @@ correspondência fica registrada como sugestão de revisão no relatório.
 
 Cuidado: trechos parecidos podem ter sentido diferente. Use limiares altos, mantenha
 a memória desligada em livros novos e sensíveis, ou combine com `--review-output`
-para conferir o resultado.
+para conferir o resultado. A memória de tradução ainda não roda junto com
+`--workers` maior que `1`; use uma das duas otimizações por execução.
 
 ### Ajustar configurações
 
@@ -552,6 +553,7 @@ uv run ayvu --mode developer translate livro.epub \
   --url http://localhost:5000 \
   --cache .cache/traducoes.sqlite \
   --requests-per-second 2 \
+  --workers 2 \
   --retries 4 \
   --retry-backoff 1 \
   --retry-backoff-max 10
@@ -559,6 +561,10 @@ uv run ayvu --mode developer translate livro.epub \
 
 Use `--requests-per-second` quando o servidor local ficar instável sob muitas chamadas. O retry
 usa backoff exponencial para falhas de conexão, timeout, HTTP `429` e HTTP `5xx`.
+Use `--workers` para processar documentos internos do EPUB em paralelo; o padrão
+é `1`, e valores maiores criam tradutor e conexão SQLite separados por worker,
+mantendo a montagem final em ordem. Se usar `--translation-memory`, mantenha
+`--workers 1` nesta versão.
 
 ## Checklist recomendado
 

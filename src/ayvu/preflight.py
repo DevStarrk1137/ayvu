@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from .domain import LanguagePair, LanguagePairError
 from .epub_io import inspect_epub
 from .glossary import Glossary, GlossaryError, load_glossary
 from .translator import (
+    RequestRateLimiter,
     RouteResolutionError,
     RoutedTranslator,
     TranslationRoute,
@@ -33,6 +35,7 @@ class TranslationPreflightResult:
     translator: Translator
     glossary: Glossary
     route: TranslationRoute | None = None
+    translator_factory: Callable[[], Translator] | None = None
 
 
 def run_translation_preflight(
@@ -52,7 +55,8 @@ def run_translation_preflight(
 ) -> TranslationPreflightResult:
     _check_language_pair(language_pair)
     glossary = _load_checked_glossary(glossary_path)
-    translator = _create_checked_translator(
+    rate_limiter = RequestRateLimiter(requests_per_second) if requests_per_second is not None else None
+    translator_factory = _create_checked_translator_factory(
         translator_name,
         url,
         timeout,
@@ -60,7 +64,9 @@ def run_translation_preflight(
         requests_per_second=requests_per_second,
         retry_backoff=retry_backoff,
         retry_backoff_max=retry_backoff_max,
+        rate_limiter=rate_limiter,
     )
+    translator = translator_factory()
     _check_cache(cache_path)
     _check_epub(epub_path)
     route: TranslationRoute | None = None
@@ -68,7 +74,14 @@ def run_translation_preflight(
         route = _resolve_route_or_fallback(translator, language_pair, url)
         if route is not None and not route.is_direct:
             translator = RoutedTranslator(translator, route)
-    return TranslationPreflightResult(translator=translator, glossary=glossary, route=route)
+            base_factory = translator_factory
+            translator_factory = lambda: RoutedTranslator(base_factory(), route)
+    return TranslationPreflightResult(
+        translator=translator,
+        glossary=glossary,
+        route=route,
+        translator_factory=translator_factory,
+    )
 
 
 def _check_language_pair(language_pair: LanguagePair) -> None:
@@ -101,6 +114,7 @@ def _create_checked_translator(
     requests_per_second: float | None,
     retry_backoff: float,
     retry_backoff_max: float,
+    rate_limiter: RequestRateLimiter | None = None,
 ) -> Translator:
     try:
         return create_translator(
@@ -111,6 +125,7 @@ def _create_checked_translator(
             requests_per_second=requests_per_second,
             retry_backoff=retry_backoff,
             retry_backoff_max=retry_backoff_max,
+            rate_limiter=rate_limiter,
         )
     except TranslatorError as exc:
         raise PreflightError(
@@ -118,6 +133,31 @@ def _create_checked_translator(
             "Use --translator libretranslate.",
             detail=str(exc),
         ) from exc
+
+
+def _create_checked_translator_factory(
+    name: str,
+    url: str,
+    timeout: float,
+    retries: int,
+    requests_per_second: float | None,
+    retry_backoff: float,
+    retry_backoff_max: float,
+    rate_limiter: RequestRateLimiter | None,
+) -> Callable[[], Translator]:
+    def factory() -> Translator:
+        return _create_checked_translator(
+            name,
+            url,
+            timeout,
+            retries,
+            requests_per_second=requests_per_second,
+            retry_backoff=retry_backoff,
+            retry_backoff_max=retry_backoff_max,
+            rate_limiter=rate_limiter,
+        )
+
+    return factory
 
 
 def _check_cache(cache_path: Path) -> None:

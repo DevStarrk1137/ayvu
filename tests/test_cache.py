@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -45,6 +46,23 @@ def test_cache_is_language_specific(tmp_path):
         cache.set(_cache_key("Hello", "en", "pt"), "Olá")
 
         assert cache.get(_cache_key("Hello", "en", "es")) is None
+
+
+def test_cache_accepts_concurrent_writes_from_separate_connections(tmp_path):
+    cache_path = tmp_path / "translations.sqlite"
+
+    def write_entry(index: int) -> None:
+        with TranslationCache(cache_path) as cache:
+            cache.set(_cache_key(f"Text {index}"), f"T{index}")
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        list(executor.map(write_entry, range(24)))
+
+    with TranslationCache(cache_path) as cache:
+        rows = cache.summary(source_lang="en", target_lang="pt")
+
+    assert len(rows) == 1
+    assert rows[0].count == 24
 
 
 def test_cache_writable_check_does_not_persist_probe(tmp_path):

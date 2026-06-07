@@ -3,7 +3,7 @@ import pytest
 from ayvu.cache import CacheKey, TranslationCache
 from ayvu.domain import LanguagePair
 from ayvu.preflight import PreflightError, run_translation_preflight
-from ayvu.translator import RoutedTranslator, TranslatorError, TranslatorLanguage
+from ayvu.translator import RequestRateLimiter, RoutedTranslator, TranslatorError, TranslatorLanguage
 
 
 class FakeTranslator:
@@ -124,7 +124,9 @@ def test_preflight_passes_execution_controls_to_translator_factory(monkeypatch, 
     )
 
     assert calls["args"] == ("libretranslate",)
-    assert calls["kwargs"] == {
+    kwargs = calls["kwargs"]
+    assert isinstance(kwargs.pop("rate_limiter"), RequestRateLimiter)
+    assert kwargs == {
         "url": "http://localhost:5000",
         "timeout": 1.0,
         "retries": 0,
@@ -274,6 +276,40 @@ def test_preflight_wraps_translator_when_intermediate_route_is_needed(monkeypatc
     assert isinstance(result.translator, RoutedTranslator)
     assert result.route is not None
     assert result.route.intermediate == "en"
+
+
+def test_preflight_translator_factory_preserves_intermediate_route(monkeypatch, tmp_path):
+    languages = (
+        TranslatorLanguage(code="fr", name="French", targets=("en",)),
+        TranslatorLanguage(code="en", name="English", targets=("pt",)),
+        TranslatorLanguage(code="pt", name="Portuguese", targets=("en",)),
+    )
+    created: list[TranslatorWithLanguages] = []
+
+    def fake_create_translator(*_args: object, **_kwargs: object) -> TranslatorWithLanguages:
+        translator = TranslatorWithLanguages(languages)
+        created.append(translator)
+        return translator
+
+    monkeypatch.setattr("ayvu.preflight.create_translator", fake_create_translator)
+    monkeypatch.setattr("ayvu.preflight.inspect_epub", lambda _path: object())
+
+    result = run_translation_preflight(
+        epub_path=tmp_path / "book.epub",
+        cache_path=tmp_path / "cache.sqlite",
+        glossary_path=None,
+        translator_name="libretranslate",
+        url="http://localhost:5000",
+        timeout=1.0,
+        retries=0,
+        language_pair=LanguagePair(source="fr", target="pt"),
+        dry_run=False,
+    )
+
+    assert result.translator_factory is not None
+    worker_translator = result.translator_factory()
+    assert isinstance(worker_translator, RoutedTranslator)
+    assert len(created) == 2
 
 
 def test_preflight_reports_missing_route_with_clear_message(monkeypatch, tmp_path):
