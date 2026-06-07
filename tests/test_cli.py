@@ -8,14 +8,23 @@ from ebooklib import epub
 from typer.testing import CliRunner
 
 from ayvu.cache import CacheKey, TranslationCache
+import typer
+
 from ayvu.cli import (
     DEFAULT_PREVIEW_DOCUMENT_LIMIT,
+    _build_translation_memory_options,
     _offer_markdown_report,
     _render_markdown_report,
     _save_markdown_report,
     app,
 )
-from ayvu.domain import LanguagePair, OutputPlan, TranslationOptions, UserMode
+from ayvu.domain import (
+    LanguagePair,
+    OutputPlan,
+    TranslationMemoryOptions,
+    TranslationOptions,
+    UserMode,
+)
 from ayvu.epub_io import ReviewApplyReport, TranslationReport
 from ayvu.glossary import GlossaryUsage
 from ayvu.html_translate import HtmlTranslationStats
@@ -1994,6 +2003,58 @@ def test_translate_command_rejects_review_output_with_dry_run(tmp_path, monkeypa
     assert "Não é possível gerar arquivo de revisão em dry-run." in result.output
     assert not review_path.exists()
     assert "Traceback" not in result.output
+
+
+def test_build_translation_memory_options_disabled_returns_none():
+    assert (
+        _build_translation_memory_options(
+            enabled=False,
+            apply_threshold=0.95,
+            suggest_threshold=0.80,
+            mode=UserMode.DEVELOPER,
+        )
+        is None
+    )
+
+
+def test_build_translation_memory_options_returns_validated_options():
+    options = _build_translation_memory_options(
+        enabled=True,
+        apply_threshold=0.9,
+        suggest_threshold=0.7,
+        mode=UserMode.DEVELOPER,
+    )
+
+    assert options == TranslationMemoryOptions(apply_threshold=0.9, suggest_threshold=0.7)
+
+
+def test_build_translation_memory_options_rejects_invalid_thresholds():
+    with pytest.raises(typer.Exit):
+        _build_translation_memory_options(
+            enabled=True,
+            apply_threshold=0.5,
+            suggest_threshold=0.9,
+            mode=UserMode.DEVELOPER,
+        )
+
+
+def test_render_markdown_report_includes_memory_rows():
+    report = TranslationReport(
+        chapters_processed=1,
+        texts_translated=2,
+        texts_from_cache=1,
+        texts_from_memory=3,
+        memory_suggestions=4,
+        output_path=Path("books/book-pt.epub"),
+        input_path=Path("books/book.epub"),
+        detected_language="en",
+        target_language="pt",
+    )
+
+    markdown = _render_markdown_report(report, dry_run=False)
+
+    assert "- Texts from memory: 3" in markdown
+    assert "- Memory suggestions: 4" in markdown
 
 
 def test_render_markdown_report_includes_translation_context():

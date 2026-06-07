@@ -10,6 +10,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Tradução por bloco (parágrafos, títulos e listas) preservando tags internas como `em`, `strong` e links via placeholders.
 - Preservação de tags, CSS, imagens, links, sumário e nomes de arquivos internos.
 - Cache SQLite para retomar traduções interrompidas e evitar chamadas repetidas.
+- Memória de tradução opcional para reaproveitar trechos parecidos por similaridade, com aplicação ou sugestão por limiar.
 - Checkpoints de progresso por capítulo e comando `resume` para retomar com segurança traduções longas.
 - Glossário JSON opcional e fluxo guiado para padronizar termos técnicos.
 - Perfis de tradução para agrupar idioma de destino, glossário e estilo planejado.
@@ -374,7 +375,7 @@ uv run ayvu translate livro.epub \
   --missing-output faltantes.txt
 ```
 
-Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, arquivo de revisão quando solicitado, capítulos processados, textos traduzidos, cache, textos ausentes do cache (no modo cache-only), erros e resumo do uso do glossário quando houver glossário configurado. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`. Em traduções em batch, o Ayvu salva automaticamente um relatório Markdown separado para cada livro.
+Ao final da tradução, o Ayvu mostra um relatório no terminal com o EPUB original, idiomas, saída calculada, arquivo de revisão quando solicitado, capítulos processados, textos traduzidos, cache, textos reaproveitados da memória de tradução e sugestões de revisão quando a memória está ativa, textos ausentes do cache (no modo cache-only), erros e resumo do uso do glossário quando houver glossário configurado. No **Modo Comum**, também pergunta se deve salvar esse relatório em Markdown em `~/Documentos/Livros/Relatorios`. Em traduções em batch, o Ayvu salva automaticamente um relatório Markdown separado para cada livro.
 
 Extrair texto visível para Markdown:
 
@@ -530,6 +531,55 @@ Diferença para a retomada normal: a retomada reexecuta a tradução e **chama o
 tradutor** para os trechos ainda não cacheados, gravando estado em
 `~/Documentos/Livros/Processando`. O cache-only nunca chama o tradutor, não cria
 estado de retomada e não exige servidor ativo.
+
+## Memória de Tradução
+
+O cache normal só reaproveita traduções de trechos **idênticos**. A memória de
+tradução é uma camada opcional que também reaproveita trechos **parecidos**, útil
+em livros técnicos, séries e textos com frases repetidas. Ela fica **desligada por
+padrão** e é ativada com `--translation-memory`:
+
+```bash
+uv run ayvu translate livro.epub \
+  --output livro-ptbr.epub \
+  --cache .cache/traducoes.sqlite \
+  --translation-memory \
+  --tm-apply-threshold 0.95 \
+  --tm-suggest-threshold 0.80
+```
+
+A memória usa os mesmos pares original/traduzido já guardados no cache SQLite, em
+disco. Para cada trecho novo sem correspondência exata, o Ayvu busca candidatos
+parecidos do mesmo par de idiomas e mede a similaridade. O comportamento é em
+camadas, controlado por dois limiares de similaridade (entre 0 e 1):
+
+- **Similaridade ≥ `--tm-apply-threshold`** (padrão `0.95`): a tradução guardada é
+  reaproveitada direto, sem chamar o tradutor. Conta como `Texts from memory` no
+  relatório.
+- **Similaridade em `[--tm-suggest-threshold, --tm-apply-threshold)`** (padrão
+  `0.80` a `0.95`): o trecho é traduzido normalmente, mas a correspondência
+  parecida é registrada como sugestão de revisão e contada em `Memory
+  suggestions`.
+- **Similaridade abaixo de `--tm-suggest-threshold`**: nada muda, o trecho segue o
+  fluxo normal de tradução.
+
+Por segurança, a memória atua **somente em trechos de texto puro**: blocos com
+tags inline (como `<em>` ou `<a>`) não reaproveitam memória, e correspondências
+que envolvam marcação são descartadas, para nunca injetar a formatação de outro
+trecho. A reutilização **não** é regravada no cache sob o novo texto.
+
+Os pares reaproveitáveis são os do próprio cache, então o formato exportável já
+existente serve à memória: use `ayvu cache export` para salvar os pares
+original/traduzido em JSON.
+
+> **Risco de qualidade (falsos positivos).** Trechos parecidos podem ter
+> significados diferentes (negações, números, nomes, pequenas trocas de palavra).
+> Quanto menor o limiar de aplicação, maior o risco de reaproveitar uma tradução
+> errada. Por isso a memória é opt-in e usa limiares altos por padrão; o nível de
+> sugestão existe justamente para que correspondências menos seguras sejam
+> revisadas em vez de aplicadas automaticamente. Para um livro novo e sensível,
+> prefira manter a memória desligada ou usar `--review-output` para conferir o
+> resultado.
 
 ## Biblioteca
 

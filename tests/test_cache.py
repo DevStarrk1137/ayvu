@@ -55,6 +55,45 @@ def test_cache_writable_check_does_not_persist_probe(tmp_path):
         assert cache.get(_cache_key("__ayvu_cache_write_check__", "ayvu", "ayvu")) is None
 
 
+def test_fuzzy_candidates_filters_by_pair_and_length(tmp_path):
+    cache_path = tmp_path / "translations.sqlite"
+    with TranslationCache(cache_path) as cache:
+        cache.set(_cache_key("I have a cat.", "en", "pt"), "Eu tenho um gato.")
+        cache.set(_cache_key("I have a dog.", "en", "pt"), "Eu tenho um cachorro.")
+        cache.set(_cache_key("A much much longer sentence that is far away in length.", "en", "pt"), "Longo")
+        cache.set(_cache_key("I have a cat.", "en", "es"), "Tengo un gato.")
+
+        candidates = cache.fuzzy_candidates(
+            language_pair=LanguagePair(source="en", target="pt"),
+            text="I have a bat.",
+            min_ratio=0.6,
+            max_candidates=10,
+        )
+
+    originals = [original for original, _ in candidates]
+    translations = [translated for _, translated in candidates]
+    assert "I have a cat." in originals
+    assert "I have a dog." in originals
+    assert "A much much longer sentence that is far away in length." not in originals
+    assert "Tengo un gato." not in translations
+
+
+def test_fuzzy_candidates_respects_limit(tmp_path):
+    cache_path = tmp_path / "translations.sqlite"
+    with TranslationCache(cache_path) as cache:
+        for index in range(5):
+            cache.set(_cache_key(f"Sentence number {index} here.", "en", "pt"), f"T{index}")
+
+        candidates = cache.fuzzy_candidates(
+            language_pair=LanguagePair(source="en", target="pt"),
+            text="Sentence number 9 here.",
+            min_ratio=0.6,
+            max_candidates=2,
+        )
+
+    assert len(candidates) == 2
+
+
 def test_cache_summary_groups_by_language_pair_with_dates(tmp_path):
     cache_path = tmp_path / "translations.sqlite"
     with TranslationCache(cache_path) as cache:

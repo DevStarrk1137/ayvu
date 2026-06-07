@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sqlite3
 from contextlib import suppress
 from dataclasses import dataclass
@@ -175,6 +176,44 @@ class TranslationCache:
             ),
         )
         self.connection.commit()
+
+    def fuzzy_candidates(
+        self,
+        *,
+        language_pair: LanguagePair,
+        text: str,
+        min_ratio: float,
+        max_candidates: int,
+    ) -> tuple[tuple[str, str], ...]:
+        """Fetch candidate ``(original_text, translated_text)`` pairs for fuzzy reuse.
+
+        Only entries of the same language pair are considered, narrowed by a
+        coarse length band derived from ``min_ratio`` so the whole table is
+        never loaded into memory. Precise similarity scoring happens on this
+        bounded candidate set in the translation memory layer. Results are
+        ordered by length closeness and capped at ``max_candidates``.
+        """
+        low, high = _length_band(len(text), min_ratio)
+        rows = self.connection.execute(
+            """
+            SELECT original_text, translated_text
+            FROM translations
+            WHERE source_lang = ?
+              AND target_lang = ?
+              AND length(original_text) BETWEEN ? AND ?
+            ORDER BY ABS(length(original_text) - ?), id
+            LIMIT ?
+            """,
+            (
+                language_pair.source,
+                language_pair.target,
+                low,
+                high,
+                len(text),
+                max(1, max_candidates),
+            ),
+        ).fetchall()
+        return tuple((row[0], row[1]) for row in rows)
 
     def summary(
         self,
@@ -412,6 +451,23 @@ class TranslationCache:
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         self.close()
+
+
+def _length_band(length: int, min_ratio: float) -> tuple[int, int]:
+    """Length window a candidate must fall in to possibly reach ``min_ratio``.
+
+    For the normalized indel ratio used by the memory, the best score two
+    strings of lengths ``a`` and ``b`` can reach is ``2*min(a, b)/(a + b)``.
+    Solving that bound for the candidate length yields a symmetric window
+    ``[t*L/(2 - t), L*(2 - t)/t]`` that lets the SQL layer discard hopeless
+    candidates before any scoring.
+    """
+    if length <= 0 or min_ratio <= 0.0:
+        return 0, 2_000_000_000
+    ratio = min(min_ratio, 1.0)
+    low = math.floor(length * ratio / (2.0 - ratio))
+    high = math.ceil(length * (2.0 - ratio) / ratio)
+    return max(0, low), high
 
 
 def _cache_filter_sql(
