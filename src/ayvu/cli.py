@@ -27,6 +27,8 @@ from .domain import (
     ChapterSelectionError,
     LanguagePair,
     OutputPlan,
+    TranslationMemoryError,
+    TranslationMemoryOptions,
     TranslationOptions,
     UserMode,
     default_preview_books_dir,
@@ -472,6 +474,21 @@ def translate(
         "--missing-output",
         help="With --cache-only, path to save the original texts missing from the cache.",
     ),
+    translation_memory: bool = typer.Option(
+        False,
+        "--translation-memory/--no-translation-memory",
+        help="Reuse translations of similar text (fuzzy translation memory). Off by default.",
+    ),
+    tm_apply_threshold: float = typer.Option(
+        0.95,
+        "--tm-apply-threshold",
+        help="With --translation-memory, reuse a stored translation when similarity is at or above this (0-1).",
+    ),
+    tm_suggest_threshold: float = typer.Option(
+        0.80,
+        "--tm-suggest-threshold",
+        help="With --translation-memory, record a review suggestion when similarity is in [suggest, apply).",
+    ),
 ) -> None:
     """Translate EPUB visible text while preserving EPUB structure."""
     mode = ctx.obj.get("mode", UserMode.DEVELOPER)
@@ -492,6 +509,12 @@ def translate(
     )
     resolved_output_dir = _resolve_translation_output_dir(output_dir, mode=mode)
     chapter_selection = _parse_chapter_selection(chapters, mode=mode)
+    tm_options = _build_translation_memory_options(
+        enabled=translation_memory,
+        apply_threshold=tm_apply_threshold,
+        suggest_threshold=tm_suggest_threshold,
+        mode=mode,
+    )
 
     if len(epub_list) > 1:
         _run_batch_translation(
@@ -518,6 +541,7 @@ def translate(
             translate_alt_text=translate_alt_text,
             cache_only=cache_only,
             require_full_cache=require_full_cache,
+            translation_memory=tm_options,
         )
         return
 
@@ -547,6 +571,7 @@ def translate(
         cache_only=cache_only,
         require_full_cache=require_full_cache,
         missing_output=missing_output,
+        translation_memory=tm_options,
         confirm_output_location=resolved_output_dir is None,
     )
 
@@ -958,6 +983,32 @@ def _validate_cache_only_options(
         raise typer.Exit(code=1)
 
 
+def _build_translation_memory_options(
+    enabled: bool,
+    apply_threshold: float,
+    suggest_threshold: float,
+    mode: UserMode,
+) -> TranslationMemoryOptions | None:
+    if not enabled:
+        return None
+
+    options = TranslationMemoryOptions(
+        apply_threshold=apply_threshold,
+        suggest_threshold=suggest_threshold,
+    )
+    try:
+        options.validate()
+    except TranslationMemoryError as exc:
+        _print_expected_error(
+            "Configuração inválida da memória de tradução.",
+            "Use limiares entre 0 e 1, com a sugestão menor ou igual à aplicação.",
+            mode,
+            detail=str(exc),
+        )
+        raise typer.Exit(code=1) from exc
+    return options
+
+
 def _resolve_translation_output_dir(output_dir: Path | None, mode: UserMode) -> Path | None:
     if output_dir is None:
         return None
@@ -999,6 +1050,7 @@ def _run_translation(
     cache_only: bool = False,
     require_full_cache: bool = False,
     missing_output: Path | None = None,
+    translation_memory: TranslationMemoryOptions | None = None,
     output_dir: Path | None = None,
     auto_save_markdown_report: bool = False,
     report_dir: Path | None = None,
@@ -1027,6 +1079,7 @@ def _run_translation(
         chapter_selection=chapter_selection,
         cache_only=cache_only,
         require_full_cache=require_full_cache,
+        translation_memory=translation_memory,
     )
     if chapter_selection is not None:
         selected_chapters = _resolve_chapter_selection_for_display(
@@ -1222,6 +1275,7 @@ def _run_batch_translation(
     translate_alt_text: bool = False,
     cache_only: bool = False,
     require_full_cache: bool = False,
+    translation_memory: TranslationMemoryOptions | None = None,
 ) -> None:
     resolved_output_dir = output_dir or _translated_books_dir(config)
     report_dir = _reports_dir(config)
@@ -1262,6 +1316,7 @@ def _run_batch_translation(
                 translate_alt_text=translate_alt_text,
                 cache_only=cache_only,
                 require_full_cache=require_full_cache,
+                translation_memory=translation_memory,
                 auto_save_markdown_report=True,
                 report_dir=report_dir,
                 confirm_output_location=False,
@@ -1617,6 +1672,10 @@ def _print_report(
     table.add_row("Chapters processed", str(report.chapters_processed))
     table.add_row("Texts translated", str(report.texts_translated))
     table.add_row("Texts from cache", str(report.texts_from_cache))
+    if report.texts_from_memory:
+        table.add_row("Texts from memory", str(report.texts_from_memory))
+    if report.memory_suggestions:
+        table.add_row("Memory suggestions", str(report.memory_suggestions))
     if report.texts_missing:
         table.add_row("Texts missing", str(report.texts_missing))
     if report.alt_texts_translated:
@@ -1734,6 +1793,8 @@ def _print_interrupted_translation(
     table.add_row("Texts processed", str(snapshot.texts_processed))
     table.add_row("Texts translated", str(snapshot.texts_translated))
     table.add_row("Texts from cache", str(snapshot.texts_from_cache))
+    if snapshot.texts_from_memory:
+        table.add_row("Texts from memory", str(snapshot.texts_from_memory))
     table.add_row("Texts dry-run", str(snapshot.texts_dry_run))
     table.add_row("Texts missing", str(snapshot.texts_missing))
     table.add_row("Text errors", str(snapshot.text_errors))
@@ -2604,6 +2665,7 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
             mode=mode,
             translate_metadata=state.translate_metadata,
             translate_alt_text=state.translate_alt_text,
+            translation_memory=state.translation_memory_options(),
         )
     except typer.Exit:
         console.print(
@@ -2872,6 +2934,10 @@ def _render_markdown_report(
     ]
     if report.review_output_path is not None:
         lines.insert(6, f"- Review file: {report.review_output_path}")
+    if report.texts_from_memory:
+        lines.append(f"- Texts from memory: {report.texts_from_memory}")
+    if report.memory_suggestions:
+        lines.append(f"- Memory suggestions: {report.memory_suggestions}")
     if report.texts_missing:
         lines.append(f"- Texts missing: {report.texts_missing}")
     if report.alt_texts_translated:

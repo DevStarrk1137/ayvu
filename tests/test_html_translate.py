@@ -1,5 +1,6 @@
 from ayvu.cache import CacheKey, TranslationCache
-from ayvu.domain import LanguagePair
+from ayvu.domain import LanguagePair, TranslationMemoryOptions
+from ayvu.translation_memory import TranslationMemory
 from ayvu.glossary import (
     GLOSSARY_RULE_FORBIDDEN,
     GLOSSARY_RULE_PRESERVE,
@@ -45,6 +46,69 @@ def test_translate_html_preserves_tags(tmp_path):
     assert "in its name." in sent
     assert "<em>" not in sent
     assert "__AYVU_PROTECTED_" in sent
+
+
+def _seed_memory(cache, apply_threshold=0.9, suggest_threshold=0.7):
+    cache.set(CacheKey(text="I have a cat.", language_pair=LanguagePair("en", "pt")), "Eu tenho um gato.")
+    return TranslationMemory(
+        cache,
+        TranslationMemoryOptions(apply_threshold=apply_threshold, suggest_threshold=suggest_threshold),
+    )
+
+
+def test_translate_text_reuses_memory_for_similar_text(tmp_path):
+    translator = FakeTranslator()
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        memory = _seed_memory(cache)
+
+        result = translate_text("I have a cat!", translator, cache, "en", "pt", memory=memory)
+
+        assert result.from_memory is True
+        assert result.text == "Eu tenho um gato."
+        assert translator.calls == []
+        # No auto-promotion: the fuzzy hit is not written under the new text.
+        assert cache.get(CacheKey(text="I have a cat!", language_pair=LanguagePair("en", "pt"))) is None
+
+
+def test_translate_text_suggests_without_reuse_in_middle_band(tmp_path):
+    translator = FakeTranslator()
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        memory = _seed_memory(cache, apply_threshold=0.97, suggest_threshold=0.6)
+
+        result = translate_text("I have a dog.", translator, cache, "en", "pt", memory=memory)
+
+    assert result.from_memory is False
+    assert result.memory_suggestion is not None
+    assert result.memory_suggestion.applied is False
+    assert result.text == "PT:I have a dog."
+    assert translator.calls == ["I have a dog."]
+
+
+def test_translate_html_reuses_memory_for_similar_plain_block(tmp_path):
+    html = "<html><body><p>I have a cat!</p></body></html>"
+    translator = FakeTranslator()
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        memory = _seed_memory(cache)
+
+        output, stats = translate_html(html, translator, cache, "en", "pt", memory=memory)
+
+    assert "Eu tenho um gato." in output.decode("utf-8")
+    assert stats.from_memory == 1
+    assert translator.calls == []
+
+
+def test_translate_html_memory_skips_blocks_with_inline_tags(tmp_path):
+    # Blocks carrying inline-tag placeholders must never reuse a fuzzy match,
+    # so another segment's markup can never be injected.
+    html = "<html><body><p>I have a <em>cat</em>!</p></body></html>"
+    translator = FakeTranslator()
+    with TranslationCache(tmp_path / "cache.sqlite") as cache:
+        memory = _seed_memory(cache, apply_threshold=0.5, suggest_threshold=0.4)
+
+        _output, stats = translate_html(html, translator, cache, "en", "pt", memory=memory)
+
+    assert stats.from_memory == 0
+    assert len(translator.calls) == 1
 
 
 def test_translate_html_ignores_script_style_code_pre(tmp_path):

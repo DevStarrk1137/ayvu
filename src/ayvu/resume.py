@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .domain import TranslationOptions
+from .domain import TranslationMemoryOptions, TranslationOptions
 
 
 RESUME_STATE_VERSION = 1
@@ -57,6 +57,10 @@ class TranslationResumeState:
     chapter_selection: str | None
     created_at: str
     updated_at: str
+    translation_memory_enabled: bool = False
+    translation_memory_apply_threshold: float | None = None
+    translation_memory_suggest_threshold: float | None = None
+    translation_memory_max_candidates: int | None = None
     total_chapters: int | None = None
     current_chapter: str | None = None
     completed_chapters: tuple[str, ...] = ()
@@ -99,6 +103,16 @@ class TranslationResumeState:
             chapter_selection=options.chapter_selection.source if options.chapter_selection else None,
             created_at=now,
             updated_at=now,
+            translation_memory_enabled=options.translation_memory is not None,
+            translation_memory_apply_threshold=(
+                options.translation_memory.apply_threshold if options.translation_memory else None
+            ),
+            translation_memory_suggest_threshold=(
+                options.translation_memory.suggest_threshold if options.translation_memory else None
+            ),
+            translation_memory_max_candidates=(
+                options.translation_memory.max_candidates if options.translation_memory else None
+            ),
         )
 
     @classmethod
@@ -135,6 +149,16 @@ class TranslationResumeState:
             chapter_selection=_optional_text(data, "chapter_selection"),
             created_at=_required_text(data, "created_at"),
             updated_at=_required_text(data, "updated_at"),
+            translation_memory_enabled=_optional_bool(data, "translation_memory_enabled", default=False),
+            translation_memory_apply_threshold=_optional_number_or_none(
+                data, "translation_memory_apply_threshold"
+            ),
+            translation_memory_suggest_threshold=_optional_number_or_none(
+                data, "translation_memory_suggest_threshold"
+            ),
+            translation_memory_max_candidates=_optional_int_or_none(
+                data, "translation_memory_max_candidates"
+            ),
             total_chapters=_optional_int_or_none(data, "total_chapters"),
             current_chapter=_optional_text(data, "current_chapter"),
             completed_chapters=_optional_str_tuple(data, "completed_chapters"),
@@ -148,6 +172,19 @@ class TranslationResumeState:
             value = data[key]
             data[key] = str(value) if value is not None else None
         return data
+
+    def translation_memory_options(self) -> TranslationMemoryOptions | None:
+        if not self.translation_memory_enabled:
+            return None
+        defaults = TranslationMemoryOptions()
+        apply_threshold = self.translation_memory_apply_threshold
+        suggest_threshold = self.translation_memory_suggest_threshold
+        max_candidates = self.translation_memory_max_candidates
+        return TranslationMemoryOptions(
+            apply_threshold=apply_threshold if apply_threshold is not None else defaults.apply_threshold,
+            suggest_threshold=suggest_threshold if suggest_threshold is not None else defaults.suggest_threshold,
+            max_candidates=max_candidates if max_candidates is not None else defaults.max_candidates,
+        )
 
     def mark_completed(self) -> "TranslationResumeState":
         return replace(self, status=COMPLETED_STATUS, updated_at=_utc_now())
@@ -283,6 +320,15 @@ def _optional_int_or_none(data: dict[str, object], key: str) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ResumeStateError(f"Resume state field {key} must be an integer or null.")
     return value
+
+
+def _optional_number_or_none(data: dict[str, object], key: str) -> float | None:
+    if key not in data or data[key] is None:
+        return None
+    value = data[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ResumeStateError(f"Resume state field {key} must be a number or null.")
+    return float(value)
 
 
 def _optional_int_default(data: dict[str, object], key: str, default: int) -> int:

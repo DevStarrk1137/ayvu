@@ -13,6 +13,7 @@ class TranslationProgressSnapshot:
     texts_processed: int
     texts_translated: int
     texts_from_cache: int
+    texts_from_memory: int
     texts_dry_run: int
     texts_missing: int
     text_errors: int
@@ -22,6 +23,7 @@ class TranslationProgressSnapshot:
 class TextProgressCounters:
     translated: int = 0
     cache: int = 0
+    memory: int = 0
     dry_run: int = 0
     missing: int = 0
     error: int = 0
@@ -32,6 +34,9 @@ class TextProgressCounters:
             return
         if status == "cache":
             self.cache += 1
+            return
+        if status == "memory":
+            self.memory += 1
             return
         if status == "dry_run":
             self.dry_run += 1
@@ -46,7 +51,7 @@ class TextProgressCounters:
 
     @property
     def processed(self) -> int:
-        return self.translated + self.cache + self.dry_run + self.missing + self.error
+        return self.translated + self.cache + self.memory + self.dry_run + self.missing + self.error
 
     def new_count(self, dry_run: bool) -> int:
         if dry_run:
@@ -94,6 +99,7 @@ class TranslationProgress:
             texts_processed=self._counters.processed,
             texts_translated=self._counters.translated,
             texts_from_cache=self._counters.cache,
+            texts_from_memory=self._counters.memory,
             texts_dry_run=self._counters.dry_run,
             texts_missing=self._counters.missing,
             text_errors=self._counters.error,
@@ -105,9 +111,10 @@ class TranslationProgress:
     def _text_description(self) -> str:
         new_label = "would translate" if self._dry_run else "new"
         new_count = self._counters.new_count(self._dry_run)
+        memory_part = f"memory {self._counters.memory} | " if self._counters.memory else ""
         return (
             f"Texts {self._counters.processed} | {new_label} {new_count} | "
-            f"cache {self._counters.cache} | missing {self._counters.missing} | "
+            f"cache {self._counters.cache} | {memory_part}missing {self._counters.missing} | "
             f"errors {self._counters.error}"
         )
 

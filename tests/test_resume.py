@@ -3,7 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from ayvu.domain import ChapterSelection, LanguagePair, TranslationOptions
+from ayvu.domain import (
+    ChapterSelection,
+    LanguagePair,
+    TranslationMemoryOptions,
+    TranslationOptions,
+)
 from ayvu.resume import (
     COMPLETED_STATUS,
     RESUME_STATE_VERSION,
@@ -58,6 +63,63 @@ def test_resume_state_round_trip(tmp_path):
     assert loaded.chapter_selection == "1-2,*chapter3*"
     assert loaded.timeout == 9.5
     assert loaded.retries == 3
+
+
+def test_resume_state_round_trips_translation_memory(tmp_path):
+    store = ResumeStateStore(tmp_path / "Processando")
+    state = TranslationResumeState.create(
+        input_path=tmp_path / "Original" / "book.epub",
+        output_path=tmp_path / "Traduzidos" / "book-pt.epub",
+        cache_path=tmp_path / "cache.sqlite",
+        translator_name="libretranslate",
+        url="http://localhost:5000",
+        glossary_path=None,
+        options=TranslationOptions(
+            language_pair=LanguagePair(source="en", target="pt"),
+            translation_memory=TranslationMemoryOptions(
+                apply_threshold=0.93, suggest_threshold=0.75, max_candidates=50
+            ),
+        ),
+        overwrite=True,
+        timeout=5.0,
+        retries=1,
+    )
+
+    loaded = store.load(store.save(state))
+
+    assert loaded.translation_memory_enabled is True
+    assert loaded.translation_memory_apply_threshold == 0.93
+    assert loaded.translation_memory_suggest_threshold == 0.75
+    assert loaded.translation_memory_max_candidates == 50
+    assert loaded.translation_memory_options() == TranslationMemoryOptions(
+        apply_threshold=0.93, suggest_threshold=0.75, max_candidates=50
+    )
+
+
+def test_resume_state_defaults_to_disabled_translation_memory(tmp_path):
+    state = make_state(tmp_path)
+
+    assert state.translation_memory_enabled is False
+    assert state.translation_memory_options() is None
+
+
+def test_resume_state_loads_legacy_file_without_translation_memory(tmp_path):
+    state = make_state(tmp_path)
+    data = state.to_dict()
+    for key in (
+        "translation_memory_enabled",
+        "translation_memory_apply_threshold",
+        "translation_memory_suggest_threshold",
+        "translation_memory_max_candidates",
+    ):
+        data.pop(key, None)
+    path = tmp_path / "legacy.ayvu-state.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    loaded = ResumeStateStore(tmp_path).load(path)
+
+    assert loaded.translation_memory_enabled is False
+    assert loaded.translation_memory_options() is None
 
 
 def test_resume_state_can_be_marked_completed(tmp_path):

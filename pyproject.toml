@@ -18,7 +18,8 @@ dependencies = [
   "lxml>=4.9",
   "requests>=2.31",
   "typer>=0.9",
-  "rich>=13.0"
+  "rich>=13.0",
+  "rapidfuzz>=3.0"
 ]
 
 [project.optional-dependencies]

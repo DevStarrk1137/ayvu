@@ -12,6 +12,7 @@ from .cache import CacheKey, TranslationCache
 from .chunking import split_text
 from .domain import LanguagePair
 from .glossary import Glossary, GlossaryUsage, apply_glossary_with_usage
+from .translation_memory import TranslationMemory, TranslationMemoryMatch
 from .translator import Translator
 
 
@@ -84,11 +85,14 @@ class ProtectedText:
 class HtmlTranslationStats:
     translated: int = 0
     from_cache: int = 0
+    from_memory: int = 0
+    memory_suggestions: int = 0
     skipped: int = 0
     alt_translated: int = 0
     missing: int = 0
     errors: list[str] = field(default_factory=list)
     missing_texts: list[str] = field(default_factory=list)
+    memory_suggestion_texts: list[str] = field(default_factory=list)
     glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
 
 
@@ -112,8 +116,10 @@ class TextParts:
 class TextTranslationResult:
     text: str
     from_cache: bool = False
+    from_memory: bool = False
     missing: bool = False
     glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
+    memory_suggestion: TranslationMemoryMatch | None = None
 
 
 @dataclass(frozen=True)
@@ -155,6 +161,7 @@ def translate_html(
     cache_only: bool = False,
     fail_fast: bool = False,
     chunk_limit: int = 3000,
+    memory: TranslationMemory | None = None,
     on_error: Callable[[Exception], None] | None = None,
     on_text_processed: TextProgressCallback | None = None,
     on_segment_translated: SegmentReviewCallback | None = None,
@@ -180,6 +187,7 @@ def translate_html(
                 dry_run=dry_run,
                 cache_only=cache_only,
                 chunk_limit=chunk_limit,
+                memory=memory,
             )
             if not dry_run and not result.missing:
                 fragment = _expand_tag_tokens(escape(result.text), tag_markup)
@@ -216,6 +224,7 @@ def translate_html(
             cache_only=cache_only,
             fail_fast=fail_fast,
             chunk_limit=chunk_limit,
+            memory=memory,
             stats=stats,
             on_error=on_error,
             on_text_processed=on_text_processed,
@@ -235,6 +244,7 @@ def translate_text(
     dry_run: bool = False,
     cache_only: bool = False,
     chunk_limit: int = 3000,
+    memory: TranslationMemory | None = None,
 ) -> TextTranslationResult:
     parts = TextParts.from_text(text)
     if not parts.core:
@@ -251,11 +261,20 @@ def translate_text(
             glossary_usage=application.usage,
         )
 
+    suggestion = _lookup_memory_suggestion(memory, parts.core, language_pair)
+    if suggestion is not None and suggestion.applied:
+        application = apply_glossary_with_usage(suggestion.translated, glossary)
+        return TextTranslationResult(
+            text=parts.restore(application.text),
+            from_memory=True,
+            glossary_usage=application.usage,
+        )
+
     if cache_only:
-        return TextTranslationResult(text=text, missing=True)
+        return TextTranslationResult(text=text, missing=True, memory_suggestion=suggestion)
 
     if dry_run:
-        return TextTranslationResult(text=text)
+        return TextTranslationResult(text=text, memory_suggestion=suggestion)
 
     protected = _protect_special_terms(parts.core)
     translated_chunks = [
@@ -265,7 +284,33 @@ def translate_text(
     translated = protected.restore("".join(translated_chunks))
     cache.set(cache_key, translated)
     application = apply_glossary_with_usage(translated, glossary)
-    return TextTranslationResult(text=parts.restore(application.text), glossary_usage=application.usage)
+    return TextTranslationResult(
+        text=parts.restore(application.text),
+        glossary_usage=application.usage,
+        memory_suggestion=suggestion,
+    )
+
+
+def _lookup_memory_suggestion(
+    memory: TranslationMemory | None,
+    core: str,
+    language_pair: LanguagePair,
+) -> TranslationMemoryMatch | None:
+    """Find a fuzzy match for plain-text segments only.
+
+    Segments carrying inline-tag placeholders are skipped, and matches whose
+    stored text carries placeholders are rejected, so a reused translation can
+    never inject another segment's markup. This keeps the memory conservative
+    and limited to plain prose, where similar phrasing is most common.
+    """
+    if memory is None or TAG_TOKEN_PATTERN.search(core):
+        return None
+    match = memory.lookup(core, language_pair)
+    if match is None:
+        return None
+    if TAG_TOKEN_PATTERN.search(match.original) or TAG_TOKEN_PATTERN.search(match.translated):
+        return None
+    return match
 
 
 def apply_reviewed_html(
@@ -322,6 +367,7 @@ def _translate_image_alt_text(
     cache_only: bool,
     fail_fast: bool,
     chunk_limit: int,
+    memory: TranslationMemory | None,
     stats: HtmlTranslationStats,
     on_error: Callable[[Exception], None] | None,
     on_text_processed: TextProgressCallback | None,
@@ -348,6 +394,7 @@ def _translate_image_alt_text(
                 dry_run=dry_run,
                 cache_only=cache_only,
                 chunk_limit=chunk_limit,
+                memory=memory,
             )
             if not dry_run and not result.missing:
                 image["alt"] = result.text
@@ -647,6 +694,15 @@ def _record_success(
     dry_run: bool,
     on_text_processed: TextProgressCallback | None,
 ) -> None:
+    if result.memory_suggestion is not None:
+        stats.memory_suggestions += 1
+        stats.memory_suggestion_texts.append(result.memory_suggestion.original)
+
+    if result.from_memory:
+        stats.from_memory += 1
+        _notify_text_processed(on_text_processed, "memory")
+        return
+
     if result.missing:
         stats.missing += 1
         _notify_text_processed(on_text_processed, "missing")

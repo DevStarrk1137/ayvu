@@ -32,6 +32,9 @@ lancadas e secoes versionadas quando uma release for publicada.
   rota de traducao e tradutor.
 - Comandos `cache inspect`, `cache clean`, `cache export` e `cache import` para
   gerenciar o cache SQLite fora do fluxo normal de traducao.
+- Memoria de traducao opcional (`--translation-memory`) que reaproveita trechos
+  parecidos por similaridade, com aplicacao acima de `--tm-apply-threshold` e
+  sugestao de revisao entre `--tm-suggest-threshold` e `--tm-apply-threshold`.
 - Estado local de retomada em `~/Documentos/Livros/Processando` ou na pasta de
   processamento configurada.
 - Checkpoints de progresso no estado de retomada, atualizados a cada capitulo com

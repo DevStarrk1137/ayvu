@@ -19,6 +19,10 @@ class ChapterSelectionError(ValueError):
     pass
 
 
+class TranslationMemoryError(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class LanguagePair:
     source: str
@@ -170,6 +174,38 @@ def _parse_positive_chapter_index(value: str) -> int:
 
 
 @dataclass(frozen=True)
+class TranslationMemoryOptions:
+    """Configuration for the fuzzy translation memory.
+
+    The presence of this object means the memory is enabled; ``None`` on
+    :class:`TranslationOptions` keeps it disabled. Thresholds are normalized
+    similarity scores in the ``(0, 1]`` range. A score at or above
+    ``apply_threshold`` reuses the stored translation directly; a score in
+    ``[suggest_threshold, apply_threshold)`` is only recorded as a suggestion.
+    """
+
+    apply_threshold: float = 0.95
+    suggest_threshold: float = 0.80
+    max_candidates: int = 200
+
+    def validate(self) -> None:
+        if not 0.0 < self.suggest_threshold <= 1.0:
+            raise TranslationMemoryError("suggest threshold must be between 0 and 1")
+        if not 0.0 < self.apply_threshold <= 1.0:
+            raise TranslationMemoryError("apply threshold must be between 0 and 1")
+        if self.suggest_threshold > self.apply_threshold:
+            raise TranslationMemoryError("suggest threshold cannot be greater than apply threshold")
+        if self.max_candidates < 1:
+            raise TranslationMemoryError("max candidates must be 1 or greater")
+
+    def applies(self, score: float) -> bool:
+        return score >= self.apply_threshold
+
+    def suggests(self, score: float) -> bool:
+        return self.suggest_threshold <= score < self.apply_threshold
+
+
+@dataclass(frozen=True)
 class TranslationOptions:
     language_pair: LanguagePair
     dry_run: bool = False
@@ -181,6 +217,7 @@ class TranslationOptions:
     chapter_selection: ChapterSelection | None = None
     cache_only: bool = False
     require_full_cache: bool = False
+    translation_memory: TranslationMemoryOptions | None = None
 
     @property
     def source(self) -> str:

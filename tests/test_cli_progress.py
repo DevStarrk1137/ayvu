@@ -20,6 +20,17 @@ def test_text_progress_counters_track_known_statuses():
     assert counters.error == 1
 
 
+def test_text_progress_counters_track_memory_status():
+    counters = TextProgressCounters()
+
+    counters.record("memory")
+    counters.record("memory")
+
+    assert counters.memory == 2
+    assert counters.processed == 2
+    assert counters.new_count(dry_run=False) == 0
+
+
 def test_text_progress_counters_reject_unknown_status():
     counters = TextProgressCounters()
 
@@ -47,12 +58,15 @@ def test_translation_progress_snapshot_tracks_partial_state():
     progress.chapter_done(1, 2, "chapter-one.xhtml", object())
     progress.chapter_started(2, 2, "chapter-two.xhtml")
 
+    progress.text_processed("memory")
+
     snapshot = progress.snapshot()
 
     assert snapshot.chapters_processed == 1
     assert snapshot.total_chapters == 2
     assert snapshot.current_chapter == "chapter-two.xhtml"
-    assert snapshot.texts_processed == 3
+    assert snapshot.texts_processed == 4
     assert snapshot.texts_translated == 1
     assert snapshot.texts_from_cache == 1
+    assert snapshot.texts_from_memory == 1
     assert snapshot.texts_missing == 1

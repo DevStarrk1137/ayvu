@@ -31,6 +31,7 @@ from .review_export import (
     parse_segment_id,
 )
 from .review_import import ReviewImportData, ReviewRow
+from .translation_memory import TranslationMemory
 from .translator import Translator
 
 
@@ -95,11 +96,14 @@ class TranslationReport:
     chapters_processed: int = 0
     texts_translated: int = 0
     texts_from_cache: int = 0
+    texts_from_memory: int = 0
+    memory_suggestions: int = 0
     texts_skipped: int = 0
     texts_missing: int = 0
     alt_texts_translated: int = 0
     errors: list[str] = field(default_factory=list)
     missing_texts: list[str] = field(default_factory=list)
+    memory_suggestion_texts: list[str] = field(default_factory=list)
     glossary_terms_configured: int = 0
     glossary_usage: GlossaryUsage = field(default_factory=GlossaryUsage)
     output_path: Path | None = None
@@ -115,16 +119,24 @@ class TranslationReport:
     def record_chapter(self, stats: HtmlTranslationStats) -> None:
         self.texts_translated += stats.translated
         self.texts_from_cache += stats.from_cache
+        self.texts_from_memory += stats.from_memory
+        self.memory_suggestions += stats.memory_suggestions
         self.texts_skipped += stats.skipped
         self.texts_missing += stats.missing
         self.alt_texts_translated += stats.alt_translated
         self.errors.extend(stats.errors)
         self.missing_texts.extend(stats.missing_texts)
+        self.memory_suggestion_texts.extend(stats.memory_suggestion_texts)
         self.glossary_usage.merge(stats.glossary_usage)
         self.chapters_processed += 1
 
     def record_text(self, result: TextTranslationResult) -> None:
-        if result.missing:
+        if result.memory_suggestion is not None:
+            self.memory_suggestions += 1
+            self.memory_suggestion_texts.append(result.memory_suggestion.original)
+        if result.from_memory:
+            self.texts_from_memory += 1
+        elif result.missing:
             self.texts_missing += 1
             self.missing_texts.append(result.text)
         elif result.from_cache:
@@ -208,6 +220,11 @@ def translate_epub(
     opf_archive_path = _get_opf_archive_path(source_path)
     opf_base_path = _opf_base_path(opf_archive_path)
     replacements = EpubReplacements()
+    memory = (
+        TranslationMemory(cache, options.translation_memory)
+        if options.translation_memory is not None
+        else None
+    )
 
     with ZipFile(source_path, "r") as source_epub:
         archive_names = set(source_epub.namelist())
@@ -234,6 +251,7 @@ def translate_epub(
                     options=options,
                     glossary=glossary,
                     report=report,
+                    memory=memory,
                     on_text_processed=on_text_processed,
                     on_review_text=_metadata_review_callback(
                         review_segments,
@@ -292,6 +310,7 @@ def translate_epub(
                     cache_only=options.cache_only,
                     fail_fast=options.fail_fast,
                     chunk_limit=options.chunk_limit,
+                    memory=memory,
                     on_text_processed=on_text_processed,
                     on_segment_translated=on_segment_translated if review_segments is not None else None,
                     translate_alt_text=options.translate_alt_text,
@@ -779,6 +798,7 @@ def _translate_opf_title(
     glossary: Glossary | None,
     report: TranslationReport,
     on_text_processed: TextProgressCallback | None,
+    memory: TranslationMemory | None = None,
     on_review_text: MetadataReviewCallback | None = None,
 ) -> bytes | None:
     root = ET.fromstring(opf_content)
@@ -796,6 +816,7 @@ def _translate_opf_title(
         dry_run=options.dry_run,
         cache_only=options.cache_only,
         chunk_limit=options.chunk_limit,
+        memory=memory,
     )
     if on_review_text:
         on_review_text(title.text, result)
@@ -836,6 +857,8 @@ def _text_progress_status(result: TextTranslationResult, dry_run: bool) -> str:
         return "missing"
     if result.from_cache:
         return "cache"
+    if result.from_memory:
+        return "memory"
     if dry_run:
         return "dry_run"
     return "translated"

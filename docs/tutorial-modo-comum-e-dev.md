@@ -263,6 +263,28 @@ uv run ayvu cache import cache-ayvu.json --cache .cache/traducoes.sqlite
 Esse JSON contém textos originais e traduzidos. Trate o arquivo exportado como
 privado.
 
+### Reaproveitar trechos parecidos com a memória de tradução
+
+O cache só reaproveita trechos idênticos. Para também reaproveitar trechos
+**parecidos** (útil em livros técnicos e séries), ative a memória de tradução, que
+fica desligada por padrão:
+
+```bash
+uv run ayvu translate livro.epub \
+  --output livro-ptbr.epub \
+  --cache .cache/traducoes.sqlite \
+  --translation-memory
+```
+
+Ela usa os pares já guardados no cache. Acima de `--tm-apply-threshold` (padrão
+`0.95`) a tradução parecida é reaproveitada direto; entre `--tm-suggest-threshold`
+(padrão `0.80`) e o limiar de aplicação, o trecho é traduzido normalmente e a
+correspondência fica registrada como sugestão de revisão no relatório.
+
+Cuidado: trechos parecidos podem ter sentido diferente. Use limiares altos, mantenha
+a memória desligada em livros novos e sensíveis, ou combine com `--review-output`
+para conferir o resultado.
+
 ### Ajustar configurações
 
 No menu inicial, escolha `Settings` para ver os valores atuais e alterar preferências locais. A pasta base padrão inicial é:
