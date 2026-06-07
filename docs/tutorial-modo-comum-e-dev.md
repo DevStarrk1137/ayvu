@@ -550,8 +550,15 @@ uv run ayvu --mode developer translate livro.epub \
   --source en \
   --target pt \
   --url http://localhost:5000 \
-  --cache .cache/traducoes.sqlite
+  --cache .cache/traducoes.sqlite \
+  --requests-per-second 2 \
+  --retries 4 \
+  --retry-backoff 1 \
+  --retry-backoff-max 10
 ```
+
+Use `--requests-per-second` quando o servidor local ficar instável sob muitas chamadas. O retry
+usa backoff exponencial para falhas de conexão, timeout, HTTP `429` e HTTP `5xx`.
 
 ## Checklist recomendado
 

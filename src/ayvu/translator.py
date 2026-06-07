@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import requests
@@ -131,6 +131,16 @@ class LibreTranslatePayload:
 @dataclass(frozen=True)
 class RetryPolicy:
     retries: int
+    backoff: float = 0.5
+    max_backoff: float = 8.0
+
+    def __post_init__(self) -> None:
+        if self.retries < 0:
+            raise TranslatorError("retry count must be zero or greater")
+        if self.backoff < 0:
+            raise TranslatorError("retry backoff must be zero or greater")
+        if self.max_backoff < 0:
+            raise TranslatorError("retry backoff max must be zero or greater")
 
     @property
     def max_attempts(self) -> int:
@@ -143,7 +153,41 @@ class RetryPolicy:
         return attempt < self.max_attempts
 
     def delay_for(self, attempt: int) -> float:
-        return 0.5 * attempt
+        if self.backoff == 0 or self.max_backoff == 0:
+            return 0.0
+        return min(self.max_backoff, self.backoff * (2 ** max(0, attempt - 1)))
+
+    def should_retry_status(self, status_code: int, attempt: int) -> bool:
+        return (status_code == 429 or status_code >= 500) and self.can_retry(attempt)
+
+
+@dataclass
+class RequestRateLimiter:
+    requests_per_second: float | None = None
+    _last_request_at: float | None = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        if self.requests_per_second is not None and self.requests_per_second <= 0:
+            raise TranslatorError("requests per second must be greater than zero")
+
+    def wait(self) -> None:
+        if self.requests_per_second is None:
+            return
+
+        interval = 1.0 / self.requests_per_second
+        now = time.monotonic()
+        if self._last_request_at is None:
+            self._last_request_at = now
+            return
+
+        next_request_at = self._last_request_at + interval
+        delay = next_request_at - now
+        if delay > 0:
+            time.sleep(delay)
+            self._last_request_at = next_request_at
+            return
+
+        self._last_request_at = now
 
 
 class LibreTranslateResponseParser:
@@ -193,11 +237,19 @@ class LibreTranslateTranslator(Translator):
     url: str = "http://localhost:5000"
     timeout: float = 30.0
     retries: int = 2
+    requests_per_second: float | None = None
+    retry_backoff: float = 0.5
+    retry_backoff_max: float = 8.0
 
     def __post_init__(self) -> None:
         self.endpoint = self._normalize_endpoint(self.url)
         self.session: HttpSession = requests.Session()
-        self.retry_policy = RetryPolicy(self.retries)
+        self.retry_policy = RetryPolicy(
+            self.retries,
+            backoff=self.retry_backoff,
+            max_backoff=self.retry_backoff_max,
+        )
+        self.rate_limiter = RequestRateLimiter(self.requests_per_second)
         self.response_parser = LibreTranslateResponseParser()
 
     def translate(self, text: str, source: str, target: str) -> str:
@@ -274,13 +326,15 @@ class LibreTranslateTranslator(Translator):
         raise TranslatorError(f"LibreTranslate languages request failed: {last_error}")
 
     def _post(self, payload: LibreTranslatePayload) -> requests.Response:
+        self.rate_limiter.wait()
         return self.session.post(self.endpoint, json=payload.as_json(), timeout=self.timeout)
 
     def _get_languages(self, endpoint: str) -> requests.Response:
+        self.rate_limiter.wait()
         return self.session.get(endpoint, timeout=self.timeout)
 
     def _should_retry_response(self, response: requests.Response, attempt: int) -> bool:
-        return response.status_code >= 500 and self.retry_policy.can_retry(attempt)
+        return self.retry_policy.should_retry_status(response.status_code, attempt)
 
     def _retry_after_exception(self, attempt: int) -> bool:
         if not self.retry_policy.can_retry(attempt):
@@ -315,8 +369,23 @@ class LibreTranslateTranslator(Translator):
         return clean
 
 
-def create_translator(name: str, url: str, timeout: float = 30.0, retries: int = 2) -> Translator:
+def create_translator(
+    name: str,
+    url: str,
+    timeout: float = 30.0,
+    retries: int = 2,
+    requests_per_second: float | None = None,
+    retry_backoff: float = 0.5,
+    retry_backoff_max: float = 8.0,
+) -> Translator:
     if name != "libretranslate":
         supported = ", ".join(SUPPORTED_TRANSLATORS)
         raise UnsupportedTranslatorError(f"Unsupported translator: {name}. Supported translators: {supported}.")
-    return LibreTranslateTranslator(url=url, timeout=timeout, retries=retries)
+    return LibreTranslateTranslator(
+        url=url,
+        timeout=timeout,
+        retries=retries,
+        requests_per_second=requests_per_second,
+        retry_backoff=retry_backoff,
+        retry_backoff_max=retry_backoff_max,
+    )

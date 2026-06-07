@@ -39,6 +39,9 @@ def make_state(tmp_path: Path, stem: str = "book") -> TranslationResumeState:
         overwrite=True,
         timeout=9.5,
         retries=3,
+        requests_per_second=2.5,
+        retry_backoff=0.25,
+        retry_backoff_max=2.0,
     )
 
 
@@ -63,6 +66,9 @@ def test_resume_state_round_trip(tmp_path):
     assert loaded.chapter_selection == "1-2,*chapter3*"
     assert loaded.timeout == 9.5
     assert loaded.retries == 3
+    assert loaded.requests_per_second == 2.5
+    assert loaded.retry_backoff == 0.25
+    assert loaded.retry_backoff_max == 2.0
 
 
 def test_resume_state_round_trips_translation_memory(tmp_path):
@@ -111,6 +117,9 @@ def test_resume_state_loads_legacy_file_without_translation_memory(tmp_path):
         "translation_memory_apply_threshold",
         "translation_memory_suggest_threshold",
         "translation_memory_max_candidates",
+        "requests_per_second",
+        "retry_backoff",
+        "retry_backoff_max",
     ):
         data.pop(key, None)
     path = tmp_path / "legacy.ayvu-state.json"
@@ -120,6 +129,9 @@ def test_resume_state_loads_legacy_file_without_translation_memory(tmp_path):
 
     assert loaded.translation_memory_enabled is False
     assert loaded.translation_memory_options() is None
+    assert loaded.requests_per_second is None
+    assert loaded.retry_backoff == 0.5
+    assert loaded.retry_backoff_max == 8.0
 
 
 def test_resume_state_can_be_marked_completed(tmp_path):

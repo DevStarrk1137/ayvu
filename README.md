@@ -299,6 +299,35 @@ Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o 
 
 O Ayvu também resolve a rota de tradução consultando os idiomas do LibreTranslate: se não houver caminho direto entre origem e destino, tenta uma rota intermediária via inglês (por exemplo `fr -> en -> pt`). Quando a rota intermediária é usada, o modo comum avisa que a tradução passará por 2 etapas e que a qualidade pode ficar comprometida; o modo desenvolvedor mostra a rota explicitamente. Se nenhuma rota estiver disponível, o comando falha antes de processar o EPUB.
 
+### Controle de requisições ao tradutor
+
+Por padrão, o Ayvu não limita a taxa de requisições ao tradutor local. Para servidores mais
+fracos ou instáveis, use `--requests-per-second` para limitar quantas chamadas HTTP podem
+começar por segundo:
+
+```bash
+uv run ayvu translate livro.epub \
+  --target pt \
+  --url http://localhost:5000 \
+  --requests-per-second 2
+```
+
+Retries são controlados por `--retries`. Falhas de conexão, timeout, HTTP `429` e HTTP `5xx`
+podem ser tentadas novamente. O atraso entre tentativas usa backoff exponencial: começa em
+`--retry-backoff` segundos, por padrão `0.5`, e é limitado por `--retry-backoff-max`, por
+padrão `8.0`.
+
+```bash
+uv run ayvu translate livro.epub \
+  --target pt \
+  --retries 4 \
+  --retry-backoff 1 \
+  --retry-backoff-max 10
+```
+
+As mesmas opções também existem em `test-translator` e `languages`, para testar o servidor com
+os controles que serão usados na tradução.
+
 Sem `--output`, o Ayvu salva por padrão em:
 
 ```text
@@ -446,6 +475,8 @@ uv run ayvu translate livro.epub \
 ```
 
 Trechos já traduzidos serão reaproveitados automaticamente.
+O checkpoint de retomada preserva as opções de execução do tradutor, como timeout, retries,
+limite de requisições por segundo e backoff.
 
 O cache pode ser inspecionado, limpo, exportado e importado separadamente dos
 comandos de tradução:

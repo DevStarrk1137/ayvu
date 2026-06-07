@@ -94,6 +94,113 @@ def test_libretranslate_retries_5xx_before_success(monkeypatch: pytest.MonkeyPat
     assert sleeps == [0.5]
 
 
+def test_libretranslate_retries_429_before_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    session = FakeSession(
+        [
+            make_response(429, "too many requests"),
+            make_response(200, '{"translatedText": "Tudo certo"}'),
+        ]
+    )
+    translator = LibreTranslateTranslator(retries=1)
+    translator.session = session
+    monkeypatch.setattr("ayvu.translator.time.sleep", lambda delay: sleeps.append(delay))
+
+    result = translator.translate("All right", "en", "pt")
+
+    assert result == "Tudo certo"
+    assert len(session.posts) == 2
+    assert sleeps == [0.5]
+
+
+def test_libretranslate_retries_any_5xx_before_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    session = FakeSession(
+        [
+            make_response(508, "loop detected"),
+            make_response(200, '{"translatedText": "Tudo certo"}'),
+        ]
+    )
+    translator = LibreTranslateTranslator(retries=1)
+    translator.session = session
+    monkeypatch.setattr("ayvu.translator.time.sleep", lambda delay: sleeps.append(delay))
+
+    result = translator.translate("All right", "en", "pt")
+
+    assert result == "Tudo certo"
+    assert len(session.posts) == 2
+    assert sleeps == [0.5]
+
+
+def test_libretranslate_uses_exponential_backoff_with_max(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    session = FakeSession(
+        [
+            make_response(503, "temporarily unavailable"),
+            make_response(503, "temporarily unavailable"),
+            make_response(503, "temporarily unavailable"),
+            make_response(200, '{"translatedText": "Tudo certo"}'),
+        ]
+    )
+    translator = LibreTranslateTranslator(retries=3, retry_backoff=0.25, retry_backoff_max=0.5)
+    translator.session = session
+    monkeypatch.setattr("ayvu.translator.time.sleep", lambda delay: sleeps.append(delay))
+
+    result = translator.translate("All right", "en", "pt")
+
+    assert result == "Tudo certo"
+    assert len(session.posts) == 4
+    assert sleeps == [0.25, 0.5, 0.5]
+
+
+def test_libretranslate_rate_limits_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    times = iter([10.0, 10.1])
+    session = FakeSession(
+        [
+            make_response(200, '{"translatedText": "Ola"}'),
+            make_response(200, '{"translatedText": "Mundo"}'),
+        ]
+    )
+    translator = LibreTranslateTranslator(retries=0, requests_per_second=2.0)
+    translator.session = session
+    monkeypatch.setattr("ayvu.translator.time.monotonic", lambda: next(times))
+    monkeypatch.setattr("ayvu.translator.time.sleep", lambda delay: sleeps.append(delay))
+
+    translator.translate("Hello", "en", "pt")
+    translator.translate("World", "en", "pt")
+
+    assert len(session.posts) == 2
+    assert sleeps == [pytest.approx(0.4)]
+
+
+def test_libretranslate_rate_limiter_is_shared_between_languages_and_translate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps: list[float] = []
+    times = iter([20.0, 20.2])
+    session = FakeSession(
+        responses=[make_response(200, '{"translatedText": "Ola"}')],
+        get_responses=[
+            make_response(
+                200,
+                '[{"code": "en", "name": "English", "targets": ["pt"]}]',
+            )
+        ],
+    )
+    translator = LibreTranslateTranslator(retries=0, requests_per_second=1.0)
+    translator.session = session
+    monkeypatch.setattr("ayvu.translator.time.monotonic", lambda: next(times))
+    monkeypatch.setattr("ayvu.translator.time.sleep", lambda delay: sleeps.append(delay))
+
+    translator.list_languages()
+    translator.translate("Hello", "en", "pt")
+
+    assert len(session.gets) == 1
+    assert len(session.posts) == 1
+    assert sleeps == [pytest.approx(0.8)]
+
+
 def test_libretranslate_reports_http_error() -> None:
     session = FakeSession([make_response(400, "bad language pair")])
     translator = LibreTranslateTranslator(retries=0)

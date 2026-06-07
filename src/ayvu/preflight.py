@@ -46,10 +46,21 @@ def run_translation_preflight(
     language_pair: LanguagePair,
     dry_run: bool,
     cache_only: bool = False,
+    requests_per_second: float | None = None,
+    retry_backoff: float = 0.5,
+    retry_backoff_max: float = 8.0,
 ) -> TranslationPreflightResult:
     _check_language_pair(language_pair)
     glossary = _load_checked_glossary(glossary_path)
-    translator = _create_checked_translator(translator_name, url, timeout, retries)
+    translator = _create_checked_translator(
+        translator_name,
+        url,
+        timeout,
+        retries,
+        requests_per_second=requests_per_second,
+        retry_backoff=retry_backoff,
+        retry_backoff_max=retry_backoff_max,
+    )
     _check_cache(cache_path)
     _check_epub(epub_path)
     route: TranslationRoute | None = None
@@ -82,9 +93,25 @@ def _load_checked_glossary(glossary_path: Path | None) -> Glossary:
         ) from exc
 
 
-def _create_checked_translator(name: str, url: str, timeout: float, retries: int) -> Translator:
+def _create_checked_translator(
+    name: str,
+    url: str,
+    timeout: float,
+    retries: int,
+    requests_per_second: float | None,
+    retry_backoff: float,
+    retry_backoff_max: float,
+) -> Translator:
     try:
-        return create_translator(name, url=url, timeout=timeout, retries=retries)
+        return create_translator(
+            name,
+            url=url,
+            timeout=timeout,
+            retries=retries,
+            requests_per_second=requests_per_second,
+            retry_backoff=retry_backoff,
+            retry_backoff_max=retry_backoff_max,
+        )
     except TranslatorError as exc:
         raise PreflightError(
             "Não foi possível preparar o tradutor.",
