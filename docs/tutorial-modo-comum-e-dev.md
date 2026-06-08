@@ -102,9 +102,9 @@ Durante traduções reais, o Ayvu registra um checkpoint local em:
 ~/Documentos/Livros/Processando
 ```
 
-Esse checkpoint (`*.ayvu-state.json`) é atualizado a cada capítulo e guarda o progresso: total de capítulos, capítulo atual, capítulos concluídos e capítulos com falha.
+Esse checkpoint (`*.ayvu-state.json`) é atualizado a cada capítulo e guarda o progresso: total de capítulos, capítulo atual, capítulos concluídos e capítulos com falha. Ele também preserva os controles de execução usados na tradução, como workers, limite de requisições e backoff.
 
-Ao executar `uv run ayvu`, o modo comum procura estados em andamento, mostra o resumo do checkpoint e oferece retomar a tradução detectada. O cache SQLite continua sendo a parte que evita retraduzir textos já concluídos: na retomada, só os trechos ainda não cacheados (os que faltaram ou falharam) chamam o tradutor de novo.
+Ao executar `uv run ayvu`, o modo comum procura estados em andamento, mostra o resumo do checkpoint e os controles salvos (`Workers`, `Rate limit` e `Retry policy`), e oferece retomar a tradução detectada. O cache SQLite continua sendo a parte que evita retraduzir textos já concluídos: na retomada, só os trechos ainda não cacheados (os que faltaram ou falharam) chamam o tradutor de novo.
 
 ## Tutorial intermediário: preview, glossário e organização
 
@@ -493,9 +493,10 @@ uv run ayvu resume livro.epub --target pt
 
 Sem argumentos, ele retoma a única tradução em andamento; havendo mais de uma,
 informe o EPUB e o `--target`. O comando mostra o checkpoint (capítulos
-concluídos, capítulo atual e falhas) e reexecuta a tradução com as opções da
-execução original. O cache evita retraduzir o que já foi concluído, então só os
-trechos pendentes chamam o tradutor.
+concluídos, capítulo atual e falhas), os controles de execução salvos e
+reexecuta a tradução com as opções da execução original. O cache evita
+retraduzir o que já foi concluído, então só os trechos pendentes chamam o
+tradutor.
 
 ### Reconstruir usando apenas o cache
 
@@ -563,8 +564,10 @@ Use `--requests-per-second` quando o servidor local ficar instável sob muitas c
 usa backoff exponencial para falhas de conexão, timeout, HTTP `429` e HTTP `5xx`.
 Use `--workers` para processar documentos internos do EPUB em paralelo; o padrão
 é `1`, e valores maiores criam tradutor e conexão SQLite separados por worker,
-mantendo a montagem final em ordem. Se usar `--translation-memory`, mantenha
-`--workers 1` nesta versão.
+mantendo a montagem final em ordem. O plano e o checkpoint mostram `Workers`,
+`Rate limit` e `Retry policy`; com workers paralelos, a barra de capítulos
+indica que o progresso é reportado na ordem do EPUB. Se usar
+`--translation-memory`, mantenha `--workers 1` nesta versão.
 
 ## Checklist recomendado
 

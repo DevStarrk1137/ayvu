@@ -60,14 +60,15 @@ class TextProgressCounters:
 
 
 class TranslationProgress:
-    def __init__(self, progress: Progress, dry_run: bool) -> None:
+    def __init__(self, progress: Progress, dry_run: bool, workers: int = 1) -> None:
         self._progress = progress
         self._dry_run = dry_run
+        self._workers = workers
         self._counters = TextProgressCounters()
         self._chapters_processed = 0
         self._total_chapters: int | None = None
         self._current_chapter: str | None = None
-        self._chapter_task = progress.add_task("Chapters", total=None)
+        self._chapter_task = progress.add_task(self._chapter_label(), total=None)
         self._text_task = progress.add_task("Texts", total=None)
 
     def chapter_started(self, index: int, total: int, name: str) -> None:
@@ -106,7 +107,12 @@ class TranslationProgress:
         )
 
     def _chapter_description(self, index: int, total: int, name: str) -> str:
-        return f"Chapters {index}/{total}: {_shorten(name)}"
+        return f"{self._chapter_label()} {index}/{total}: {_shorten(name)}"
+
+    def _chapter_label(self) -> str:
+        if self._workers > 1:
+            return f"Chapters ({self._workers} workers, EPUB order)"
+        return "Chapters"
 
     def _text_description(self) -> str:
         new_label = "would translate" if self._dry_run else "new"

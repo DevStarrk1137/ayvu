@@ -335,6 +335,9 @@ O padrão é `--workers 1`, que mantém a execução sequencial conservadora. Co
 SQLite separadas por worker, aplica os resultados na ordem original dos capítulos
 e preserva a ordem do EPUB, do relatório e do CSV de revisão. Se
 `--requests-per-second` estiver ativo, o limite é compartilhado entre os workers.
+O plano de tradução mostra `Workers`, `Rate limit` e `Retry policy` antes de
+começar; com execução paralela, a barra de capítulos também indica que o
+progresso é reportado na ordem do EPUB.
 
 ```bash
 uv run ayvu translate livro.epub \
@@ -490,8 +493,8 @@ uv run ayvu translate livro.epub \
 ```
 
 Trechos já traduzidos serão reaproveitados automaticamente.
-O checkpoint de retomada preserva as opções de execução do tradutor, como timeout, retries,
-limite de requisições por segundo e backoff.
+O checkpoint de retomada preserva as opções de execução do tradutor, como
+timeout, workers, retries, limite de requisições por segundo e backoff.
 
 O cache pode ser inspecionado, limpo, exportado e importado separadamente dos
 comandos de tradução:
@@ -533,7 +536,8 @@ uv run ayvu resume livro.epub --target pt
 
 Sem argumentos, `resume` continua a única tradução em andamento; havendo mais de
 uma, informe o EPUB e o `--target` para escolher. O comando mostra o checkpoint
-(até onde foi) e reexecuta a tradução com as opções salvas. Ao executar apenas
+(até onde foi), os controles de execução salvos (`Workers`, `Rate limit` e
+`Retry policy`) e reexecuta a tradução com as opções salvas. Ao executar apenas
 `uv run ayvu`, o modo comum também procura estados em andamento e oferece retomar
 a execução detectada, mostrando o mesmo resumo de checkpoint.
 

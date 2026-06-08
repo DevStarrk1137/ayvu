@@ -359,6 +359,8 @@ def test_root_command_shows_processing_translation_state(tmp_path, monkeypatch):
     assert "book.epub" in result.output
     assert "book-pt.epub" in result.output
     assert "cache.sqlite" in result.output
+    assert "Execution" in result.output
+    assert "1 (sequential)" in result.output
     assert "Continue detected translation?" in result.output
     assert "Detected translation was not resumed." in result.output
     assert "Choose an option" in result.output
@@ -583,6 +585,11 @@ def _running_resume_state(
     stem: str,
     target: str,
     create_epub: bool = True,
+    workers: int = 1,
+    requests_per_second: float | None = None,
+    retries: int = 2,
+    retry_backoff: float = 0.5,
+    retry_backoff_max: float = 8.0,
 ) -> TranslationResumeState:
     epub_path = tmp_path / "Original" / f"{stem}.epub"
     if create_epub:
@@ -595,10 +602,16 @@ def _running_resume_state(
         translator_name="libretranslate",
         url="http://localhost:5000",
         glossary_path=None,
-        options=TranslationOptions(language_pair=LanguagePair(source="en", target=target)),
+        options=TranslationOptions(
+            language_pair=LanguagePair(source="en", target=target),
+            workers=workers,
+        ),
         overwrite=False,
         timeout=30.0,
-        retries=2,
+        retries=retries,
+        requests_per_second=requests_per_second,
+        retry_backoff=retry_backoff,
+        retry_backoff_max=retry_backoff_max,
     )
 
 
@@ -628,9 +641,16 @@ def _patch_resume_pipeline(monkeypatch, processing_dir: Path, calls: dict[str, o
 
 def test_resume_command_resumes_single_state(tmp_path, monkeypatch):
     processing_dir = tmp_path / "Processando"
-    state = _running_resume_state(tmp_path, "book", "pt").record_chapter(
-        "chapter-one.xhtml", 2, ok=True
-    )
+    state = _running_resume_state(
+        tmp_path,
+        "book",
+        "pt",
+        workers=2,
+        requests_per_second=2.5,
+        retries=4,
+        retry_backoff=1.0,
+        retry_backoff_max=10.0,
+    ).record_chapter("chapter-one.xhtml", 2, ok=True)
     ResumeStateStore(processing_dir).save(state)
     calls: dict[str, object] = {}
     _patch_resume_pipeline(monkeypatch, processing_dir, calls)
@@ -641,8 +661,14 @@ def test_resume_command_resumes_single_state(tmp_path, monkeypatch):
     assert "Resuming translation:" in result.output
     assert "Resume checkpoint" in result.output
     assert "1/2" in result.output
+    assert "Workers" in result.output
+    assert "2 (parallel" in result.output
+    assert "2.5 requests/second" in result.output
+    assert "shared across workers" in result.output
+    assert "4 retries" in result.output
     assert calls["options"].source == "en"
     assert calls["options"].target == "pt"
+    assert calls["options"].workers == 2
 
 
 def test_resume_command_without_state_reports_clear_error(tmp_path, monkeypatch):
@@ -2322,6 +2348,16 @@ def test_translate_command_handles_keyboard_interrupt_cleanly(tmp_path, monkeypa
             str(output_path),
             "--cache",
             str(cache_path),
+            "--workers",
+            "2",
+            "--requests-per-second",
+            "2.5",
+            "--retries",
+            "4",
+            "--retry-backoff",
+            "1",
+            "--retry-backoff-max",
+            "10",
         ],
     )
 
@@ -2335,6 +2371,11 @@ def test_translate_command_handles_keyboard_interrupt_cleanly(tmp_path, monkeypa
     assert "Texts translated" in result.output
     assert "Texts from cache" in result.output
     assert "Text errors" in result.output
+    assert "Workers" in result.output
+    assert "2 (parallel" in result.output
+    assert "2.5 requests/second" in result.output
+    assert "shared across workers" in result.output
+    assert "4 retries" in result.output
     assert "chapter-two.xhtml" in result.output
     assert "Cached translations saved before the interruption can be reused" in result.output
     assert str(cache_path) in result.output
@@ -2617,6 +2658,12 @@ def test_translate_command_passes_execution_controls_to_preflight_and_resume(
     assert saved_state.retry_backoff == 0.25
     assert saved_state.retry_backoff_max == 2.0
     assert saved_state.workers == 3
+    assert "Workers" in result.output
+    assert "3 (parallel" in result.output
+    assert "3.5 requests/second" in result.output
+    assert "shared across workers" in result.output
+    assert "2 retries" in result.output
+    assert "0.25s initial backoff" in result.output
 
 
 def test_translate_command_rejects_invalid_workers(minimal_epub_path, monkeypatch):
