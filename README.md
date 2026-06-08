@@ -11,6 +11,7 @@ O EPUB original nunca é alterado. A saída é gravada em um novo arquivo `.epub
 - Preservação de tags, CSS, imagens, links, sumário e nomes de arquivos internos.
 - Cache SQLite para retomar traduções interrompidas e evitar chamadas repetidas.
 - Execução paralela opcional por documento com `--workers`, mantendo `1` como padrão conservador.
+- Perfis de performance com `--performance-profile` para escolher presets `low`, `standard`, `high` ou `custom`.
 - Memória de tradução opcional para reaproveitar trechos parecidos por similaridade, com aplicação ou sugestão por limiar.
 - Checkpoints de progresso por capítulo e comando `resume` para retomar com segurança traduções longas.
 - Glossário JSON opcional e fluxo guiado para padronizar termos técnicos.
@@ -299,6 +300,32 @@ sobrescrevem os valores do perfil.
 Antes de iniciar a tradução, o Ayvu verifica internamente o par de idiomas, o glossário, o cache, o EPUB de entrada e, em traduções reais, o tradutor configurado. Se algo impedir a execução, o comando falha cedo com uma mensagem curta e um próximo passo.
 
 O Ayvu também resolve a rota de tradução consultando os idiomas do LibreTranslate: se não houver caminho direto entre origem e destino, tenta uma rota intermediária via inglês (por exemplo `fr -> en -> pt`). Quando a rota intermediária é usada, o modo comum avisa que a tradução passará por 2 etapas e que a qualidade pode ficar comprometida; o modo desenvolvedor mostra a rota explicitamente. Se nenhuma rota estiver disponível, o comando falha antes de processar o EPUB.
+
+### Perfis de performance
+
+O comando `translate` aceita `--performance-profile` para aplicar presets de execução:
+
+```bash
+uv run ayvu translate livro.epub --target pt --performance-profile low
+uv run ayvu translate livro.epub --target pt --performance-profile high
+```
+
+Os perfis disponíveis são:
+
+| Perfil | Uso recomendado | Configuração |
+|---|---|---|
+| `low` | Máquinas fracas ou servidor instável | `workers=1`, `requests_per_second=1`, `chunk_limit=1500`, retries mais pacientes |
+| `standard` | Padrão seguro | `workers=1`, sem limite de taxa, `chunk_limit=3000`, retries padrão |
+| `high` | Máquina e servidor estáveis | `workers=4`, sem limite de taxa, `chunk_limit=4000`, retries padrão |
+| `custom` | Ajuste manual por flags | Começa do padrão `standard` e usa os overrides informados |
+
+`standard` é o padrão quando `--performance-profile` não é informado. Configurações mais
+fortes, como `high`, são sempre opt-in. Flags explícitas continuam tendo precedência sobre
+o perfil: por exemplo, `--performance-profile high --workers 2` usa o restante do perfil
+`high`, mas limita os workers a `2`.
+
+No momento, `high` é incompatível com `--translation-memory`, porque esse recurso exige
+`--workers 1` nesta versão.
 
 ### Controle de requisições ao tradutor
 

@@ -553,12 +553,19 @@ uv run ayvu --mode developer translate livro.epub \
   --target pt \
   --url http://localhost:5000 \
   --cache .cache/traducoes.sqlite \
+  --performance-profile custom \
   --requests-per-second 2 \
   --workers 2 \
   --retries 4 \
   --retry-backoff 1 \
   --retry-backoff-max 10
 ```
+
+Use `--performance-profile` para escolher um preset de execução. `standard` é o
+padrão conservador, `low` reduz pressão sobre máquinas e servidores fracos,
+`high` usa `workers` paralelos para ambientes mais fortes, e `custom` começa do
+padrão para ajuste manual por flags. Flags explícitas, como `--workers` ou
+`--requests-per-second`, sobrescrevem o valor vindo do perfil.
 
 Use `--requests-per-second` quando o servidor local ficar instável sob muitas chamadas. O retry
 usa backoff exponencial para falhas de conexão, timeout, HTTP `429` e HTTP `5xx`.
