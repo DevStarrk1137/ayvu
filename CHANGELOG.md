@@ -41,6 +41,9 @@ lancadas e secoes versionadas quando uma release for publicada.
 - Opcao `--workers` no comando `translate` para processar documentos internos do
   EPUB em paralelo, mantendo `1` como padrao conservador, conexoes SQLite e
   sessoes HTTP separadas por worker e montagem final em ordem deterministica.
+- Plano, progresso, interrupcao e retomada agora mostram os controles de
+  execucao usados (`Workers`, `Rate limit` e `Retry policy`), incluindo a ordem
+  deterministica do progresso quando `--workers` e maior que `1`.
 - Estado local de retomada em `~/Documentos/Livros/Processando` ou na pasta de
   processamento configurada.
 - Checkpoints de progresso no estado de retomada, atualizados a cada capitulo com

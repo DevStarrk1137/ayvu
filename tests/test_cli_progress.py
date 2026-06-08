@@ -70,3 +70,29 @@ def test_translation_progress_snapshot_tracks_partial_state():
     assert snapshot.texts_from_cache == 1
     assert snapshot.texts_from_memory == 1
     assert snapshot.texts_missing == 1
+
+
+def test_translation_progress_marks_parallel_progress_as_epub_order():
+    class FakeProgress:
+        def __init__(self) -> None:
+            self.descriptions: list[str] = []
+
+        def add_task(self, description: str, total: object = None) -> int:
+            self.descriptions.append(description)
+            return len(self.descriptions)
+
+        def update(self, *_args: object, **kwargs: object) -> None:
+            description = kwargs.get("description")
+            if isinstance(description, str):
+                self.descriptions.append(description)
+
+        def advance(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    fake = FakeProgress()
+    progress = TranslationProgress(fake, dry_run=False, workers=3)
+
+    progress.chapter_started(1, 2, "chapter-one.xhtml")
+
+    assert "Chapters (3 workers, EPUB order)" in fake.descriptions
+    assert "Chapters (3 workers, EPUB order) 1/2: chapter-one.xhtml" in fake.descriptions

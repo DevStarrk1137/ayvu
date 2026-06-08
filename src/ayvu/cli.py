@@ -854,6 +854,11 @@ def _print_translation_plan(
     mode: UserMode,
     profile_name: str | None = None,
     profile_style: str | None = None,
+    workers: int = 1,
+    requests_per_second: float | None = None,
+    retries: int = 2,
+    retry_backoff: float = DEFAULT_RETRY_BACKOFF,
+    retry_backoff_max: float = DEFAULT_RETRY_BACKOFF_MAX,
 ) -> None:
     table = Table(title="Translation plan")
     table.add_column("Field")
@@ -867,9 +872,66 @@ def _print_translation_plan(
         table.add_row("Profile", profile_name)
     if profile_style:
         table.add_row("Profile style", profile_style)
+    for label, value in _execution_control_rows(
+        workers=workers,
+        requests_per_second=requests_per_second,
+        retries=retries,
+        retry_backoff=retry_backoff,
+        retry_backoff_max=retry_backoff_max,
+    ):
+        table.add_row(label, value)
     console.print(table)
     if source_inferred and mode == UserMode.COMMON:
         console.print(f"[dim]Idioma de origem detectado do EPUB: {language_pair.source}[/dim]")
+
+
+def _execution_control_rows(
+    *,
+    workers: int,
+    requests_per_second: float | None,
+    retries: int,
+    retry_backoff: float,
+    retry_backoff_max: float,
+) -> tuple[tuple[str, str], ...]:
+    return (
+        ("Workers", _format_workers(workers)),
+        ("Rate limit", _format_rate_limit(requests_per_second, workers=workers)),
+        ("Retry policy", _format_retry_policy(retries, retry_backoff, retry_backoff_max)),
+    )
+
+
+def _format_workers(workers: int) -> str:
+    if workers == 1:
+        return "1 (sequential)"
+    return f"{workers} (parallel, reported in EPUB order)"
+
+
+def _format_rate_limit(requests_per_second: float | None, *, workers: int) -> str:
+    if requests_per_second is None:
+        return "none"
+    suffix = " shared across workers" if workers > 1 else ""
+    return f"{_format_number(requests_per_second)} requests/second{suffix}"
+
+
+def _format_retry_policy(retries: int, retry_backoff: float, retry_backoff_max: float) -> str:
+    if retries <= 0:
+        return "disabled"
+    return (
+        f"{retries} retries, {_format_number(retry_backoff)}s initial backoff, "
+        f"{_format_number(retry_backoff_max)}s max"
+    )
+
+
+def _format_execution_summary(state: TranslationResumeState) -> str:
+    return (
+        f"{_format_workers(state.workers)}; "
+        f"{_format_rate_limit(state.requests_per_second, workers=state.workers)}; "
+        f"{_format_retry_policy(state.retries, state.retry_backoff, state.retry_backoff_max)}"
+    )
+
+
+def _format_number(value: float) -> str:
+    return f"{value:g}"
 
 
 def _print_translation_route(route: TranslationRoute | None, mode: UserMode) -> None:
@@ -1174,6 +1236,11 @@ def _run_translation(
         mode=mode,
         profile_name=resolved_profile_name,
         profile_style=profile.style if profile else None,
+        workers=workers,
+        requests_per_second=requests_per_second,
+        retries=retries,
+        retry_backoff=retry_backoff,
+        retry_backoff_max=retry_backoff_max,
     )
     translation_options = TranslationOptions(
         language_pair=language_pair,
@@ -1267,7 +1334,7 @@ def _run_translation(
             TimeElapsedColumn(),
             console=console,
         ) as progress:
-            progress_view = TranslationProgress(progress, dry_run=dry_run)
+            progress_view = TranslationProgress(progress, dry_run=dry_run, workers=workers)
 
             def on_chapter_start(index: int, total: int, name: str) -> None:
                 nonlocal resume_state
@@ -1311,6 +1378,11 @@ def _run_translation(
             output_path=output_path,
             cache_path=cache_path,
             dry_run=dry_run,
+            workers=workers,
+            requests_per_second=requests_per_second,
+            retries=retries,
+            retry_backoff=retry_backoff,
+            retry_backoff_max=retry_backoff_max,
         )
         raise typer.Exit(code=1) from exc
 
@@ -1403,6 +1475,11 @@ def _run_batch_translation(
         output_dir=resolved_output_dir,
         report_dir=report_dir,
         continue_on_error=continue_on_error,
+        workers=workers,
+        requests_per_second=requests_per_second,
+        retries=retries,
+        retry_backoff=retry_backoff,
+        retry_backoff_max=retry_backoff_max,
     )
 
     results: list[BatchTranslationResult] = []
@@ -1492,6 +1569,11 @@ def _print_batch_plan(
     output_dir: Path,
     report_dir: Path,
     continue_on_error: bool,
+    workers: int,
+    requests_per_second: float | None,
+    retries: int,
+    retry_backoff: float,
+    retry_backoff_max: float,
 ) -> None:
     table = Table(title="Batch translation plan")
     table.add_column("Field")
@@ -1500,6 +1582,14 @@ def _print_batch_plan(
     table.add_row("Output folder", str(output_dir))
     table.add_row("Reports folder", str(report_dir))
     table.add_row("Continue on error", "yes" if continue_on_error else "no")
+    for label, value in _execution_control_rows(
+        workers=workers,
+        requests_per_second=requests_per_second,
+        retries=retries,
+        retry_backoff=retry_backoff,
+        retry_backoff_max=retry_backoff_max,
+    ):
+        table.add_row(label, value)
     console.print(table)
 
 
@@ -1904,6 +1994,11 @@ def _print_interrupted_translation(
     output_path: Path,
     cache_path: Path,
     dry_run: bool,
+    workers: int,
+    requests_per_second: float | None,
+    retries: int,
+    retry_backoff: float,
+    retry_backoff_max: float,
 ) -> None:
     console.print("[yellow]Translation interrupted by user.[/yellow]")
     console.print("Cached translations saved before the interruption can be reused with the same --cache path.")
@@ -1928,6 +2023,14 @@ def _print_interrupted_translation(
     table.add_row("Texts missing", str(snapshot.texts_missing))
     table.add_row("Text errors", str(snapshot.text_errors))
     table.add_row("Current chapter", snapshot.current_chapter or "-")
+    for label, value in _execution_control_rows(
+        workers=workers,
+        requests_per_second=requests_per_second,
+        retries=retries,
+        retry_backoff=retry_backoff,
+        retry_backoff_max=retry_backoff_max,
+    ):
+        table.add_row(label, value)
     console.print(table)
 
 
@@ -2845,22 +2948,28 @@ def _select_resume_state(
 
 
 def _print_resume_checkpoint(state: TranslationResumeState) -> None:
-    if not _has_checkpoint_progress(state):
-        return
-
     table = Table(title="Resume checkpoint")
     table.add_column("Metric")
     table.add_column("Value")
-    table.add_row("Chapters completed", _checkpoint_chapter_value(state))
-    if state.current_chapter:
-        table.add_row("Current chapter", state.current_chapter)
-    if state.failed_chapters:
-        table.add_row("Chapters with failures", str(len(state.failed_chapters)))
-        table.add_row("Failed segments", str(state.failed_segment_count))
+    if _has_checkpoint_progress(state):
+        table.add_row("Chapters completed", _checkpoint_chapter_value(state))
+        if state.current_chapter:
+            table.add_row("Current chapter", state.current_chapter)
+        if state.failed_chapters:
+            table.add_row("Chapters with failures", str(len(state.failed_chapters)))
+            table.add_row("Failed segments", str(state.failed_segment_count))
+    for label, value in _execution_control_rows(
+        workers=state.workers,
+        requests_per_second=state.requests_per_second,
+        retries=state.retries,
+        retry_backoff=state.retry_backoff,
+        retry_backoff_max=state.retry_backoff_max,
+    ):
+        table.add_row(label, value)
     table.add_row("Last update", state.updated_at)
     console.print(table)
     console.print(
-        "Cached translations are reused; only segments still missing from the cache are retried."
+        "Saved execution settings and cached translations are reused; only segments still missing from the cache are retried."
     )
 
 
@@ -2887,12 +2996,14 @@ def _print_running_resume_states(states: tuple[TranslationResumeState, ...]) -> 
     table.add_column("Output")
     table.add_column("Target")
     table.add_column("Cache")
+    table.add_column("Execution")
     for state in states:
         table.add_row(
             state.input_path.name,
             state.output_path.name,
             state.target,
             state.cache_path.name,
+            _format_execution_summary(state),
         )
     console.print(table)
 
