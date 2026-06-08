@@ -44,6 +44,9 @@ lancadas e secoes versionadas quando uma release for publicada.
 - Plano, progresso, interrupcao e retomada agora mostram os controles de
   execucao usados (`Workers`, `Rate limit` e `Retry policy`), incluindo a ordem
   deterministica do progresso quando `--workers` e maior que `1`.
+- Perfis de performance com `--performance-profile low|standard|high|custom`,
+  aplicando presets para workers, limite de requisicoes, chunking e politica de
+  retry, com flags explicitas tendo precedencia.
 - Estado local de retomada em `~/Documentos/Livros/Processando` ou na pasta de
   processamento configurada.
 - Checkpoints de progresso no estado de retomada, atualizados a cada capitulo com

@@ -2666,6 +2666,122 @@ def test_translate_command_passes_execution_controls_to_preflight_and_resume(
     assert "0.25s initial backoff" in result.output
 
 
+def test_translate_command_uses_low_performance_profile(
+    minimal_epub_path,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(
+        app,
+        [
+            "--mode",
+            "developer",
+            "translate",
+            str(minimal_epub_path),
+            "--performance-profile",
+            "low",
+        ],
+    )
+
+    preflight = calls["preflight"]
+    options = calls["options"]
+    assert result.exit_code == 0
+    assert preflight["requests_per_second"] == 1.0
+    assert preflight["retries"] == 4
+    assert preflight["retry_backoff"] == 1.0
+    assert preflight["retry_backoff_max"] == 12.0
+    assert options.workers == 1
+    assert options.chunk_limit == 1500
+    assert "Performance profile" in result.output
+    assert "low" in result.output
+    assert "1 requests/second" in result.output
+    assert "4 retries" in result.output
+
+
+def test_translate_command_explicit_execution_flags_override_performance_profile(
+    minimal_epub_path,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr("ayvu.cli.default_translated_books_dir", lambda: tmp_path / "Traduzidos")
+    calls: dict[str, object] = {}
+    _mock_translation_pipeline(monkeypatch, calls)
+
+    result = runner.invoke(
+        app,
+        [
+            "--mode",
+            "developer",
+            "translate",
+            str(minimal_epub_path),
+            "--performance-profile",
+            "high",
+            "--workers",
+            "2",
+            "--requests-per-second",
+            "3",
+            "--retries",
+            "5",
+            "--retry-backoff",
+            "0.75",
+            "--retry-backoff-max",
+            "6",
+            "--chunk-limit",
+            "2200",
+        ],
+    )
+
+    preflight = calls["preflight"]
+    options = calls["options"]
+    assert result.exit_code == 0
+    assert preflight["requests_per_second"] == 3.0
+    assert preflight["retries"] == 5
+    assert preflight["retry_backoff"] == 0.75
+    assert preflight["retry_backoff_max"] == 6.0
+    assert options.workers == 2
+    assert options.chunk_limit == 2200
+    assert "Performance profile" in result.output
+    assert "high" in result.output
+    assert "2 (parallel" in result.output
+    assert "3 requests/second shared across workers" in result.output
+
+
+def test_translate_command_reports_unknown_performance_profile_without_traceback(
+    minimal_epub_path,
+    monkeypatch,
+):
+    called = False
+
+    def fail_preflight(**_kwargs: object) -> object:
+        nonlocal called
+        called = True
+        raise AssertionError("preflight should not run for an unknown performance profile")
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fail_preflight)
+
+    result = runner.invoke(
+        app,
+        [
+            "--mode",
+            "developer",
+            "translate",
+            str(minimal_epub_path),
+            "--performance-profile",
+            "turbo",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Perfil de performance não encontrado." in result.output
+    assert "--performance-profile" in result.output
+    assert "Traceback" not in result.output
+    assert not called
+
+
 def test_translate_command_rejects_invalid_workers(minimal_epub_path, monkeypatch):
     def fail_preflight(**_kwargs: object) -> object:
         raise AssertionError("preflight should not run with invalid workers")
@@ -2701,6 +2817,33 @@ def test_translate_command_rejects_parallel_workers_with_translation_memory(
             str(minimal_epub_path),
             "--workers",
             "2",
+            "--translation-memory",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--workers é incompatível com --translation-memory nesta versão." in result.output
+    assert "Traceback" not in result.output
+
+
+def test_translate_command_rejects_high_performance_profile_with_translation_memory(
+    minimal_epub_path,
+    monkeypatch,
+):
+    def fail_preflight(**_kwargs: object) -> object:
+        raise AssertionError("preflight should not run with incompatible performance profile")
+
+    monkeypatch.setattr("ayvu.cli.run_translation_preflight", fail_preflight)
+
+    result = runner.invoke(
+        app,
+        [
+            "--mode",
+            "developer",
+            "translate",
+            str(minimal_epub_path),
+            "--performance-profile",
+            "high",
             "--translation-memory",
         ],
     )

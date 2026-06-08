@@ -25,8 +25,11 @@ from .config import (
 from .domain import (
     ChapterSelection,
     ChapterSelectionError,
+    DEFAULT_PERFORMANCE_PROFILE,
     LanguagePair,
     OutputPlan,
+    PERFORMANCE_PROFILES,
+    PerformanceProfile,
     TranslationMemoryError,
     TranslationMemoryOptions,
     TranslationOptions,
@@ -123,6 +126,17 @@ class BatchTranslationResult:
     output_path: Path | None = None
     report_path: Path | None = None
     detail: str = ""
+
+
+@dataclass(frozen=True)
+class ExecutionControls:
+    performance_profile_name: str
+    workers: int
+    requests_per_second: float | None
+    retries: int
+    retry_backoff: float
+    retry_backoff_max: float
+    chunk_limit: int
 
 
 @app.callback(invoke_without_command=True)
@@ -479,6 +493,11 @@ def translate(
         "--profile",
         help="Translation profile from the Ayvu config.",
     ),
+    performance_profile_name: str = typer.Option(
+        DEFAULT_PERFORMANCE_PROFILE,
+        "--performance-profile",
+        help="Performance profile: low, standard, high, or custom.",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Process without writing translated EPUB."),
     fail_fast: bool = typer.Option(False, "--fail-fast", help="Stop at the first chapter/text error."),
     chapters: Optional[str] = typer.Option(
@@ -493,25 +512,25 @@ def translate(
     ),
     overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing an existing output file."),
     timeout: float = typer.Option(30.0, "--timeout", help="Translator HTTP timeout in seconds."),
-    retries: int = typer.Option(
-        2,
+    retries: Optional[int] = typer.Option(
+        None,
         "--retries",
-        help="HTTP retry count for connection errors, timeouts, 429, and 5xx.",
+        help="Override the performance profile HTTP retry count.",
     ),
     requests_per_second: Optional[float] = typer.Option(
         None,
         "--requests-per-second",
-        help="Maximum translator HTTP requests per second. Omit for no rate limit.",
+        help="Override the performance profile maximum translator HTTP requests per second.",
     ),
-    retry_backoff: float = typer.Option(
-        DEFAULT_RETRY_BACKOFF,
+    retry_backoff: Optional[float] = typer.Option(
+        None,
         "--retry-backoff",
-        help="Initial retry backoff delay in seconds.",
+        help="Override the performance profile initial retry backoff delay in seconds.",
     ),
-    retry_backoff_max: float = typer.Option(
-        DEFAULT_RETRY_BACKOFF_MAX,
+    retry_backoff_max: Optional[float] = typer.Option(
+        None,
         "--retry-backoff-max",
-        help="Maximum retry backoff delay in seconds.",
+        help="Override the performance profile maximum retry backoff delay in seconds.",
     ),
     translate_metadata: bool = typer.Option(
         False,
@@ -523,11 +542,15 @@ def translate(
         "--translate-alt-text",
         help="Also translate the alt text of images. Text inside images (OCR) is out of scope.",
     ),
-    chunk_limit: int = typer.Option(3000, "--chunk-limit", help="Maximum characters sent per request."),
-    workers: int = typer.Option(
-        1,
+    chunk_limit: Optional[int] = typer.Option(
+        None,
+        "--chunk-limit",
+        help="Override the performance profile maximum characters sent per request.",
+    ),
+    workers: Optional[int] = typer.Option(
+        None,
         "--workers",
-        help="Number of parallel document workers. Defaults to 1 for conservative sequential execution.",
+        help="Override the performance profile number of parallel document workers.",
     ),
     cache_only: bool = typer.Option(
         False,
@@ -585,7 +608,21 @@ def translate(
         suggest_threshold=tm_suggest_threshold,
         mode=mode,
     )
-    _validate_worker_options(workers=workers, translation_memory=tm_options, mode=mode)
+    execution_controls = _resolve_execution_controls(
+        performance_profile_name=performance_profile_name,
+        workers=workers,
+        requests_per_second=requests_per_second,
+        retries=retries,
+        retry_backoff=retry_backoff,
+        retry_backoff_max=retry_backoff_max,
+        chunk_limit=chunk_limit,
+        mode=mode,
+    )
+    _validate_worker_options(
+        workers=execution_controls.workers,
+        translation_memory=tm_options,
+        mode=mode,
+    )
 
     if len(epub_list) > 1:
         _run_batch_translation(
@@ -598,18 +635,19 @@ def translate(
             cache_path=cache_path,
             glossary_path=glossary_path,
             profile_name=profile_name,
+            performance_profile_name=execution_controls.performance_profile_name,
             dry_run=dry_run,
             fail_fast=fail_fast,
             chapter_selection=chapter_selection,
             continue_on_error=continue_on_error,
             overwrite=overwrite,
             timeout=timeout,
-            retries=retries,
-            requests_per_second=requests_per_second,
-            retry_backoff=retry_backoff,
-            retry_backoff_max=retry_backoff_max,
-            chunk_limit=chunk_limit,
-            workers=workers,
+            retries=execution_controls.retries,
+            requests_per_second=execution_controls.requests_per_second,
+            retry_backoff=execution_controls.retry_backoff,
+            retry_backoff_max=execution_controls.retry_backoff_max,
+            chunk_limit=execution_controls.chunk_limit,
+            workers=execution_controls.workers,
             mode=mode,
             config=config,
             translate_metadata=translate_metadata,
@@ -632,17 +670,18 @@ def translate(
         cache_path=cache_path,
         glossary_path=glossary_path,
         profile_name=profile_name,
+        performance_profile_name=execution_controls.performance_profile_name,
         dry_run=dry_run,
         fail_fast=fail_fast,
         chapter_selection=chapter_selection,
         overwrite=overwrite,
         timeout=timeout,
-        retries=retries,
-        requests_per_second=requests_per_second,
-        retry_backoff=retry_backoff,
-        retry_backoff_max=retry_backoff_max,
-        chunk_limit=chunk_limit,
-        workers=workers,
+        retries=execution_controls.retries,
+        requests_per_second=execution_controls.requests_per_second,
+        retry_backoff=execution_controls.retry_backoff,
+        retry_backoff_max=execution_controls.retry_backoff_max,
+        chunk_limit=execution_controls.chunk_limit,
+        workers=execution_controls.workers,
         mode=mode,
         config=config,
         translate_metadata=translate_metadata,
@@ -854,6 +893,7 @@ def _print_translation_plan(
     mode: UserMode,
     profile_name: str | None = None,
     profile_style: str | None = None,
+    performance_profile_name: str | None = None,
     workers: int = 1,
     requests_per_second: float | None = None,
     retries: int = 2,
@@ -872,6 +912,8 @@ def _print_translation_plan(
         table.add_row("Profile", profile_name)
     if profile_style:
         table.add_row("Profile style", profile_style)
+    if performance_profile_name:
+        table.add_row("Performance profile", performance_profile_name)
     for label, value in _execution_control_rows(
         workers=workers,
         requests_per_second=requests_per_second,
@@ -932,6 +974,51 @@ def _format_execution_summary(state: TranslationResumeState) -> str:
 
 def _format_number(value: float) -> str:
     return f"{value:g}"
+
+
+def _resolve_execution_controls(
+    *,
+    performance_profile_name: str,
+    workers: int | None,
+    requests_per_second: float | None,
+    retries: int | None,
+    retry_backoff: float | None,
+    retry_backoff_max: float | None,
+    chunk_limit: int | None,
+    mode: UserMode,
+) -> ExecutionControls:
+    profile = _resolve_performance_profile(performance_profile_name, mode=mode)
+    return ExecutionControls(
+        performance_profile_name=profile.name,
+        workers=workers if workers is not None else profile.workers,
+        requests_per_second=(
+            requests_per_second
+            if requests_per_second is not None
+            else profile.requests_per_second
+        ),
+        retries=retries if retries is not None else profile.retries,
+        retry_backoff=retry_backoff if retry_backoff is not None else profile.retry_backoff,
+        retry_backoff_max=(
+            retry_backoff_max if retry_backoff_max is not None else profile.retry_backoff_max
+        ),
+        chunk_limit=chunk_limit if chunk_limit is not None else profile.chunk_limit,
+    )
+
+
+def _resolve_performance_profile(name: str, mode: UserMode) -> PerformanceProfile:
+    normalized = name.strip().lower() if name else DEFAULT_PERFORMANCE_PROFILE
+    profile = PERFORMANCE_PROFILES.get(normalized)
+    if profile is not None:
+        return profile
+
+    available = ", ".join(sorted(PERFORMANCE_PROFILES))
+    _print_expected_error(
+        "Perfil de performance não encontrado.",
+        "Use --performance-profile com um dos perfis disponíveis, ou remova a opção para usar standard.",
+        mode,
+        detail=f"Perfil solicitado: {name}. Perfis disponíveis: {available}.",
+    )
+    raise typer.Exit(code=1)
 
 
 def _print_translation_route(route: TranslationRoute | None, mode: UserMode) -> None:
@@ -1200,6 +1287,7 @@ def _run_translation(
     cache_path: Path,
     glossary_path: Path | None,
     profile_name: str | None,
+    performance_profile_name: str | None,
     dry_run: bool,
     fail_fast: bool,
     chapter_selection: ChapterSelection | None,
@@ -1236,6 +1324,7 @@ def _run_translation(
         mode=mode,
         profile_name=resolved_profile_name,
         profile_style=profile.style if profile else None,
+        performance_profile_name=performance_profile_name,
         workers=workers,
         requests_per_second=requests_per_second,
         retries=retries,
@@ -1448,6 +1537,7 @@ def _run_batch_translation(
     cache_path: Path,
     glossary_path: Path | None,
     profile_name: str | None,
+    performance_profile_name: str | None,
     dry_run: bool,
     fail_fast: bool,
     chapter_selection: ChapterSelection | None,
@@ -1475,6 +1565,7 @@ def _run_batch_translation(
         output_dir=resolved_output_dir,
         report_dir=report_dir,
         continue_on_error=continue_on_error,
+        performance_profile_name=performance_profile_name,
         workers=workers,
         requests_per_second=requests_per_second,
         retries=retries,
@@ -1499,6 +1590,7 @@ def _run_batch_translation(
                 cache_path=cache_path,
                 glossary_path=glossary_path,
                 profile_name=profile_name,
+                performance_profile_name=performance_profile_name,
                 dry_run=dry_run,
                 fail_fast=fail_fast,
                 chapter_selection=chapter_selection,
@@ -1569,6 +1661,7 @@ def _print_batch_plan(
     output_dir: Path,
     report_dir: Path,
     continue_on_error: bool,
+    performance_profile_name: str | None,
     workers: int,
     requests_per_second: float | None,
     retries: int,
@@ -1582,6 +1675,8 @@ def _print_batch_plan(
     table.add_row("Output folder", str(output_dir))
     table.add_row("Reports folder", str(report_dir))
     table.add_row("Continue on error", "yes" if continue_on_error else "no")
+    if performance_profile_name:
+        table.add_row("Performance profile", performance_profile_name)
     for label, value in _execution_control_rows(
         workers=workers,
         requests_per_second=requests_per_second,
@@ -2214,6 +2309,7 @@ def _run_guided_translation(config: AyvuConfig) -> None:
         cache_path=DEFAULT_CACHE_PATH,
         glossary_path=glossary_path,
         profile_name=profile_name,
+        performance_profile_name=DEFAULT_PERFORMANCE_PROFILE,
         dry_run=False,
         fail_fast=False,
         chapter_selection=None,
@@ -2891,6 +2987,7 @@ def _resume_translation(state: TranslationResumeState, mode: UserMode) -> None:
             cache_path=state.cache_path,
             glossary_path=state.glossary_path,
             profile_name=None,
+            performance_profile_name=None,
             dry_run=False,
             fail_fast=state.fail_fast,
             chapter_selection=_parse_chapter_selection(state.chapter_selection, mode=mode),

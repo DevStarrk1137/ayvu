@@ -206,6 +206,68 @@ class TranslationMemoryOptions:
 
 
 @dataclass(frozen=True)
+class PerformanceProfile:
+    name: str
+    workers: int
+    requests_per_second: float | None
+    retries: int
+    retry_backoff: float
+    retry_backoff_max: float
+    chunk_limit: int
+    description: str
+
+
+PERFORMANCE_PROFILE_LOW = "low"
+PERFORMANCE_PROFILE_STANDARD = "standard"
+PERFORMANCE_PROFILE_HIGH = "high"
+PERFORMANCE_PROFILE_CUSTOM = "custom"
+DEFAULT_PERFORMANCE_PROFILE = PERFORMANCE_PROFILE_STANDARD
+
+PERFORMANCE_PROFILES: dict[str, PerformanceProfile] = {
+    PERFORMANCE_PROFILE_LOW: PerformanceProfile(
+        name=PERFORMANCE_PROFILE_LOW,
+        workers=1,
+        requests_per_second=1.0,
+        retries=4,
+        retry_backoff=1.0,
+        retry_backoff_max=12.0,
+        chunk_limit=1500,
+        description="Conservative settings for weak machines or fragile translator servers.",
+    ),
+    PERFORMANCE_PROFILE_STANDARD: PerformanceProfile(
+        name=PERFORMANCE_PROFILE_STANDARD,
+        workers=1,
+        requests_per_second=None,
+        retries=2,
+        retry_backoff=0.5,
+        retry_backoff_max=8.0,
+        chunk_limit=3000,
+        description="Default sequential settings for predictable local translation.",
+    ),
+    PERFORMANCE_PROFILE_HIGH: PerformanceProfile(
+        name=PERFORMANCE_PROFILE_HIGH,
+        workers=4,
+        requests_per_second=None,
+        retries=2,
+        retry_backoff=0.5,
+        retry_backoff_max=8.0,
+        chunk_limit=4000,
+        description="Opt-in parallel settings for stronger machines and stable translator servers.",
+    ),
+    PERFORMANCE_PROFILE_CUSTOM: PerformanceProfile(
+        name=PERFORMANCE_PROFILE_CUSTOM,
+        workers=1,
+        requests_per_second=None,
+        retries=2,
+        retry_backoff=0.5,
+        retry_backoff_max=8.0,
+        chunk_limit=3000,
+        description="Start from standard settings and rely on explicit CLI overrides.",
+    ),
+}
+
+
+@dataclass(frozen=True)
 class TranslationOptions:
     language_pair: LanguagePair
     dry_run: bool = False
