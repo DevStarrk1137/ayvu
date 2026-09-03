@@ -51,10 +51,12 @@ Abra o PR como draft quando ainda houver revisao ou discussao pendente antes do 
 
 Commits devem ser pequenos, descritivos e limitados ao escopo da issue. Evite misturar codigo e documentacao nao relacionada na mesma alteracao.
 
-Antes de mergear uma mudanca de codigo, rode:
+Antes de mergear uma mudanca de codigo, rode as validacoes locais aplicaveis:
 
 ```bash
-uv run pytest
+uv lock --check
+uv sync --extra dev --locked
+uv run --no-sync pytest
 ```
 
 Para mudancas apenas de documentacao, use pelo menos:
@@ -62,6 +64,39 @@ Para mudancas apenas de documentacao, use pelo menos:
 ```bash
 git diff --check
 ```
+
+## CI e Gate de Qualidade
+
+O workflow `.github/workflows/tests.yml` valida pushes para `main` e pull
+requests. Ele nao publica pacotes nem releases. O CI executa:
+
+- verificacao de que `uv.lock` corresponde ao projeto;
+- instalacao reproduzivel com a versao de uv fixada;
+- suite completa no Ubuntu com Python 3.11 e 3.14;
+- build de wheel e source distribution;
+- instalacao isolada do wheel e smoke test de `ayvu --help`;
+- job agregado e estavel chamado `ci-gate`.
+
+As Actions sao referenciadas por SHA completo, com a versao legivel em
+comentario. O token do workflow tem somente `contents: read`, e o checkout nao
+mantem credenciais. Runs antigos do mesmo pull request ou ref sao cancelados e
+todos os jobs possuem timeout.
+
+O arquivo `.github/dependabot.yml` agenda atualizacoes semanais e revisaveis
+para o lock Python gerenciado por uv e para as Actions. Ele nao habilita merge
+automatico nem concede permissoes de escrita ao CI.
+
+Depois que esse workflow estiver em `main`, a protecao remota deve ser feita em
+uma acao separadamente autorizada:
+
+1. habilitar Dependabot alerts e Dependabot security updates;
+2. proteger `main` contra merge sem pull request;
+3. exigir o check estavel `ci-gate` antes do merge;
+4. impedir bypasses nao intencionais e confirmar as regras com a API do GitHub.
+
+Essas configuracoes remotas nao existem apenas por adicionar os arquivos ao
+repositorio. Ate serem habilitadas no GitHub, o workflow informa falhas, mas nao
+impede sozinho um push ou merge em `main`.
 
 ## Milestones
 
@@ -84,7 +119,9 @@ Exemplo:
 ```bash
 git switch main
 git pull
-uv run pytest
+uv lock --check
+uv sync --extra dev --locked
+uv run --no-sync pytest
 git tag v0.0.2
 git push origin v0.0.2
 ```
