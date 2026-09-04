@@ -1,24 +1,26 @@
 # Modular-monolith boundaries and module ownership
 
-Status: `Proposed`
+Status: `Accepted`
 
 Date: 2026-09-03
+
+Accepted: 2026-09-03 by `DevStarrk1137` (project maintainer)
 
 Related issue: [#125 — DESKTOP-004](https://github.com/DevStarrk1137/ayvu/issues/125)
 
 ## Status and scope
 
-This record proposes logical ownership and dependency rules for evolving Ayvu as
-a local-first modular monolith. It does not accept the decision, move production
-code, enforce imports, add a Desktop framework, or promise a physical package
-layout. Human review must explicitly change the status before these rules become
-an accepted architecture baseline.
+This record establishes the accepted logical ownership and dependency rules for
+evolving Ayvu as a local-first modular monolith. Acceptance does not move
+production code, enforce imports, add a Desktop framework, or freeze the
+illustrative physical package layout. Those changes remain owned by separately
+reviewed issues.
 
 The current product is defined by the [product scope](../product-scope.md), its
 observable behavior is protected by the
 [translation workflow migration baseline](../translation-workflow-migration-baseline.md),
 and its interface-neutral operations are catalogued in the
-[shared application use-case matrix](shared-use-case-matrix.md). This proposal
+[shared application use-case matrix](shared-use-case-matrix.md). This baseline
 organizes those operations without changing them.
 
 ## Context
@@ -43,7 +45,7 @@ that can be introduced one use case at a time while the CLI remains operational.
 
 ## Decision drivers and invariants
 
-This proposal is driven by the following constraints:
+This decision is driven by the following constraints:
 
 1. CLI, future Desktop, local API, and MCP adapters must invoke the same
    application use cases instead of duplicating business rules.
@@ -62,11 +64,11 @@ This proposal is driven by the following constraints:
    only as a bounded vertical after its dependency gates, and becomes evidence
    for the smallest shared abstraction.
 
-These drivers correspond to the still-proposed direction of a modular monolith,
-inward-facing dependencies, and shared application contracts. This record does
-not change any related decision from `Proposed` to `Accepted`.
+This acceptance records the modular-monolith, inward-dependency, and shared
+application-contract decisions represented by `DEC-001`, `DEC-002`, and
+`DEC-017`. It does not accept any other proposed architecture decision.
 
-## Proposed architecture dimensions
+## Architecture dimensions
 
 Layers describe dependency direction. Capability modules describe ownership of
 behavior and data. They are separate dimensions: for example, Projects may
@@ -305,11 +307,11 @@ contract.
 ## Current module ownership and disposition
 
 The table covers every production module present in `main` at the time of this
-proposal. A split disposition is intentional when a current file owns more than
+decision. A split disposition is intentional when a current file owns more than
 one concern. It is a migration guide, not authorization to move code in this
 issue.
 
-| Current module | Current responsibility | Proposed owner and disposition |
+| Current module | Current responsibility | Target owner and disposition |
 | --- | --- | --- |
 | `src/ayvu/__init__.py` | Package version metadata | Package public surface; keep minimal and independent of functional modules |
 | `src/ayvu/cli.py` | Typer commands, guided UI, composition, workflow orchestration, reporting, and conflict prompts | **Interfaces/CLI** keeps parsing and presentation; construction moves to composition roots and orchestration migrates use case by use case to **Application** |
@@ -332,7 +334,7 @@ issue.
 
 ## Current flows and target seams
 
-These traces keep the proposed boundaries anchored in production behavior.
+These traces keep the accepted boundaries anchored in production behavior.
 
 | Flow | Current path | Incremental target seam |
 | --- | --- | --- |
@@ -366,7 +368,7 @@ orchestration is replaced behind one command at a time.
 A future Desktop root may build the same application services with Desktop
 presenters and event-loop adapters. It must not import the CLI, reuse Rich
 objects, or create a parallel EPUB/cache/provider core. No Desktop root or Qt
-dependency is introduced by this proposal.
+dependency is introduced by this decision.
 
 ### Future local API composition root
 
@@ -374,7 +376,7 @@ A future local API root maps authenticated, scope-limited protocol requests to
 the same application commands and queries. Authentication, transport, and
 response serialization remain interface concerns. The API cannot access
 persistence tables, format internals, provider clients, or policy decisions
-directly, and no endpoint is enabled by this proposal.
+directly, and no endpoint is enabled by this decision.
 
 ### Future MCP boundaries
 
@@ -383,7 +385,7 @@ maps allowlisted tool calls to application use cases and cannot self-assert
 filesystem, network, process, or mutation authority. An outbound MCP client is a
 separate integration adapter behind a capability-specific port. Neither role is
 an internal event bus, service locator, or route around application policy. This
-proposal implements neither role.
+decision implements neither role.
 
 ### Shared construction
 
@@ -424,18 +426,18 @@ Migration follows a strangler-style sequence around real use cases:
    duplicated orchestration proven unreachable.
 6. Repeat for the next use case, keeping temporary exceptions explicit and tied
    to a removal issue.
-7. After human acceptance of this decision, implement fail-closed import
-   enforcement separately in [#133](https://github.com/DevStarrk1137/ayvu/issues/133).
+7. With human acceptance now recorded, implement fail-closed import enforcement
+   separately in [#133](https://github.com/DevStarrk1137/ayvu/issues/133).
 8. Add a future interface only after it can exercise a real shared application
    service without reaching through to concrete adapters.
 
 This sequence forbids a big-bang package move. Physical package structure is an
 output of proven seams, not a prerequisite for them.
 
-## Proposed fitness functions
+## Fitness functions
 
-These checks become enforceable only after human acceptance and through their
-own implementation issue:
+Acceptance makes these checks eligible for enforcement through their own
+implementation issue; this record does not implement them:
 
 - every production module has an explicit owner and public API;
 - domain/application imports remain free of presentation and concrete adapter
@@ -472,10 +474,10 @@ the existing test suite provide evidence, not proof, of conformance.
 - temporary adapters and explicit seams add code during migration;
 - some current files will have split ownership until a relevant use case moves;
 - contracts require discipline to avoid becoming speculative or overly broad;
-- proposed rules still need human acceptance and later automated enforcement;
+- accepted rules still need later automated enforcement and ongoing review;
 - cross-module changes may require more deliberate transaction and error design.
 
-## Alternatives rejected for this proposal
+## Alternatives rejected for this decision
 
 | Alternative | Reason rejected |
 | --- | --- |
@@ -488,16 +490,17 @@ the existing test suite provide evidence, not proof, of conformance.
 
 ## Acceptance record
 
-Merging this document records a reviewable proposal only. Acceptance requires a
-separate human decision that records the reviewer, date, and any amendments.
-Until then:
+The project maintainer explicitly accepted this decision on 2026-09-03 after
+review and merge of [PR #180](https://github.com/DevStarrk1137/ayvu/pull/180).
+The acceptance covers the logical modular-monolith boundaries, inward dependency
+direction, module ownership, shared application services, and incremental
+migration rules in this record, with no amendments.
 
-- status remains `Proposed`;
-- the logical names are guidance, not stable import paths;
-- no Desktop toolkit is selected;
-- #133 must not encode these rules as accepted enforcement;
-- later issues must revalidate the real repository and their explicit
-  dependencies before changing code.
+Acceptance does not make illustrative package names stable import paths, select
+a Desktop toolkit, or accept unrelated architecture decisions. Issue
+[#133](https://github.com/DevStarrk1137/ayvu/issues/133) owns automated
+enforcement. Every implementation issue must still revalidate the repository,
+its dependencies, and the compatibility baseline before changing code.
 
 ## Public evidence
 
