@@ -75,6 +75,7 @@ def isolated_config(tmp_path, monkeypatch):
     """
     config_home = tmp_path / "xdg"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr("ayvu.cli.default_processing_dir", lambda: tmp_path / "Processando")
     config_path = config_home / "ayvu" / "config.json"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
