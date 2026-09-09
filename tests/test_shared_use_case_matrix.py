@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-import click
+import typer
 from typer.main import get_command
 
 from ayvu.cli import app
@@ -76,14 +76,22 @@ def _load_matrix() -> tuple[str, dict[str, Any]]:
     return text, json.loads(match.group("payload"))
 
 
-def _long_options(command: click.Command) -> list[str]:
+def _long_options(command: Any) -> list[str]:
     result: list[str] = []
-    for parameter in command.get_params(click.Context(command)):
-        if not isinstance(parameter, click.Option):
+    for parameter in command.get_params(typer.Context(command)):
+        opts = getattr(parameter, "opts", None)
+        secondary_opts = getattr(parameter, "secondary_opts", None)
+        if opts is None or secondary_opts is None:
+            continue
+        declared_options = (*opts, *secondary_opts)
+        option_tokens = [
+            option for option in declared_options if option.startswith("-")
+        ]
+        if not option_tokens:
             continue
         long_options = [
             option
-            for option in (*parameter.opts, *parameter.secondary_opts)
+            for option in option_tokens
             if option.startswith("--")
         ]
         assert long_options, (
@@ -93,12 +101,21 @@ def _long_options(command: click.Command) -> list[str]:
     return sorted(result)
 
 
-def _discover_command(command: click.Command, universal_options: set[str]) -> dict[str, Any]:
+def _subcommands(command: Any) -> dict[str, Any] | None:
+    commands = getattr(command, "commands", None)
+    if commands is None:
+        return None
+    assert isinstance(commands, dict), "command children must be stored by name"
+    return commands
+
+
+def _discover_command(command: Any, universal_options: set[str]) -> dict[str, Any]:
     subcommands: dict[str, Any] = {}
-    if isinstance(command, click.Group):
+    command_children = _subcommands(command)
+    if command_children is not None:
         subcommands = {
             name: _discover_command(child, universal_options)
-            for name, child in sorted(command.commands.items())
+            for name, child in sorted(command_children.items())
         }
     return {
         "options": sorted(set(_long_options(command)) - universal_options),
@@ -108,12 +125,13 @@ def _discover_command(command: click.Command, universal_options: set[str]) -> di
 
 def _discover_cli_surface(universal_options: set[str]) -> dict[str, Any]:
     root = get_command(app)
-    assert isinstance(root, click.Group)
+    root_commands = _subcommands(root)
+    assert root_commands is not None, "root Typer command must expose subcommands"
     return {
         "root_options": sorted(set(_long_options(root)) - universal_options),
         "commands": {
             name: _discover_command(command, universal_options)
-            for name, command in sorted(root.commands.items())
+            for name, command in sorted(root_commands.items())
         },
     }
 
@@ -198,8 +216,9 @@ def test_universal_options_exist_at_every_command_level() -> None:
     while pending:
         command = pending.pop()
         assert expected <= set(_long_options(command))
-        if isinstance(command, click.Group):
-            pending.extend(command.commands.values())
+        command_children = _subcommands(command)
+        if command_children is not None:
+            pending.extend(command_children.values())
 
 
 def test_every_command_and_option_has_a_stable_mapping() -> None:
